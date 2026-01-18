@@ -88,7 +88,7 @@ class EarlyStopping(Callback):
         self._best_epoch = None
         self._wait = 0
         self._stop = False
-        self._best_weights = None
+        self._best_state = None
         self._is_improvement = None  # set at train begin
 
     def should_stop(self):
@@ -98,7 +98,7 @@ class EarlyStopping(Callback):
         self._stop = False
         self._wait = 0
         self._best_epoch = None
-        self._best_weights = None
+        self._best_state = None
 
         mode = self.mode
         if mode == "auto":
@@ -106,7 +106,9 @@ class EarlyStopping(Callback):
             mode = "max" if ("acc" in name or "accuracy" in name) else "min"
 
         if mode not in ("min", "max"):
-            raise ValueError(f"EarlyStopping: mode must be 'min', 'max', or 'auto', got {self.mode!r}")
+            raise ValueError(
+                f"EarlyStopping: mode must be 'min', 'max', or 'auto', got {self.mode!r}"
+            )
 
         if mode == "min":
             self._best = np.inf
@@ -132,7 +134,7 @@ class EarlyStopping(Callback):
             self._wait = 0
 
             if self.restore_best_weights:
-                self._best_weights = self._snapshot_weights()
+                self._best_state = self._snapshot_state()
 
             if self.verbose:
                 print(f"[EarlyStopping] epoch={epoch} improved {self.monitor} -> {current:.6g}")
@@ -149,8 +151,8 @@ class EarlyStopping(Callback):
                     f"(best epoch={self._best_epoch}, best {self.monitor}={self._best:.6g})"
                 )
 
-            if self.restore_best_weights and self._best_weights is not None:
-                self._restore_weights(self._best_weights)
+            if self.restore_best_weights and self._best_state is not None:
+                self._restore_state(self._best_state)
                 if self.verbose:
                     print("[EarlyStopping] restored best weights")
 
@@ -166,18 +168,45 @@ class EarlyStopping(Callback):
     def _is_improvement_max(self, current, best):
         return current > (best + self.min_delta)
 
-    # ----------------- snapshot / restore -----------------
+    # ----------------- state snapshot / restore -----------------
 
-    def _iter_params(self):
+    def _snapshot_state(self):
         """
-        Iterate parameter arrays in a stable order.
+        Snapshot model state.
 
-        We rely on your convention that learnable modules implement:
-            params_and_grads() -> yields (param_array, grad_array)
+        Prefer Model.get_state() if available (cleaner, more robust).
+        Fallback: snapshot via params_and_grads iteration.
         """
         if self.model is None:
-            raise RuntimeError("EarlyStopping: model is not set. Make sure Model sets callbacks via cb.set_model(self).")
+            raise RuntimeError("EarlyStopping: model is not set. Did you call cb.set_model(model)?")
 
+        if hasattr(self.model, "get_state") and callable(self.model.get_state):
+            return self.model.get_state()
+
+        # fallback (older approach)
+        return [p.copy() for p in self._iter_params_fallback()]
+
+    def _restore_state(self, state):
+        """
+        Restore model state.
+
+        Prefer Model.set_state() if available.
+        Fallback: restore via params iteration (in-place).
+        """
+        if self.model is None:
+            raise RuntimeError("EarlyStopping: model is not set. Did you call cb.set_model(model)?")
+
+        if hasattr(self.model, "set_state") and callable(self.model.set_state):
+            self.model.set_state(state)
+            return
+
+        for p, saved in zip(self._iter_params_fallback(), state):
+            p[...] = saved
+
+    def _iter_params_fallback(self):
+        """
+        Iterate parameter arrays in a stable order using params_and_grads().
+        """
         modules = getattr(self.model, "modules", None)
         if modules is None:
             raise RuntimeError("EarlyStopping: model has no attribute 'modules'.")
@@ -186,12 +215,3 @@ class EarlyStopping(Callback):
             if hasattr(m, "params_and_grads"):
                 for p, _ in m.params_and_grads():
                     yield p
-
-    def _snapshot_weights(self):
-        # copy arrays to keep the "best" state immutable
-        return [p.copy() for p in self._iter_params()]
-
-    def _restore_weights(self, weights):
-        # restore in-place to preserve references (important for momentum/Adam state)
-        for p, w in zip(self._iter_params(), weights):
-            p[...] = w
