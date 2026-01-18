@@ -46,11 +46,9 @@ class Dense(Module):
         X = self._X_cache
         assert X is not None, "forward must be called before backward"
         
-        N = X.shape[0]
-        
         # Compute gradients
-        self.dW = np.dot(X.T, dZ) / N
-        self.db = np.sum(dZ, axis=0, keepdims=True) / N
+        self.dW = np.dot(X.T, dZ)
+        self.db = np.sum(dZ, axis=0, keepdims=True)
         
         # Gradient for previous layer
         dX = np.dot(dZ, self.W.T)
