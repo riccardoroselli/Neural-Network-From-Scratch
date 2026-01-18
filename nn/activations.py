@@ -18,7 +18,7 @@ class Sigmoid(Module):
         self.A = None
     
     def forward(self, X, training=True):
-        X_clipped = np.clip(X, -500, 500) 
+        X_clipped = np.clip(X, -20, 20) 
         self.A = 1.0 / (1.0 + np.exp(-X_clipped))
         return self.A
     
