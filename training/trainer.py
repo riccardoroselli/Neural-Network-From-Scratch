@@ -1,6 +1,7 @@
 import numpy as np
 from .dataloader import BatchIterator
 from .history import History
+import sys
 
 
 class Trainer:
@@ -22,6 +23,7 @@ class Trainer:
     def __init__(self, model, verbose=1):
         self.model = model
         self.verbose = int(verbose)
+        self._ascii_banner_printed = False
 
     # ----------------------------- public API -----------------------------
 
@@ -80,6 +82,11 @@ class Trainer:
         if stop:
             return history
 
+        # ← AGGIUNGI QUI (prima di "epochs = int(epochs)")
+        if self.verbose >= 1 and not self._ascii_banner_printed:
+            self._print_banner()
+            self._ascii_banner_printed = True
+        
         epochs = int(epochs)
 
         for epoch in range(1, epochs + 1):
@@ -114,7 +121,7 @@ class Trainer:
             history.log(**logs)
 
             if self.verbose:
-                self._print_epoch(epoch, logs)
+                self._print_progress(epoch, epochs, logs)  # ← CAMBIA QUESTA RIGA
 
             # on_epoch_end + early stop
             stop = False
@@ -127,6 +134,10 @@ class Trainer:
             if stop:
                 break
 
+        # ← AGGIUNGI QUESTE RIGHE QUI (dopo il loop, prima di on_train_end)
+        if self.verbose >= 1:
+            print()  # Newline dopo progress bar
+        
         # on_train_end
         for cb in callbacks:
             if hasattr(cb, "on_train_end"):
@@ -229,16 +240,25 @@ class Trainer:
             out[name] = s / max(n_total, 1)
         return out
 
-    def _print_epoch(self, epoch, logs):
-        parts = [f"epoch {epoch:03d}"]
-        if "loss" in logs:
-            parts.append(f"loss={float(logs['loss']):.6g}")
+    def _print_banner(self):
+        """Print ASCII art banner"""
+        banner = r"""
+      _____     ___                 _ _ _ 
+      \_   \   / __\__ ___   ____ _| | (_)
+       / /\/  / /  / _` \ \ / / _` | | | |
+    /\/ /_   / /__| (_| |\ V / (_| | | | |
+    \____/   \____/\__,_| \_/ \__,_|_|_|_|
+    """
+        print(banner)
 
-        # print other keys (metrics + val_*)
-        for k, v in logs.items():
-            if k == "loss":
-                continue
-            if isinstance(v, (float, int, np.floating, np.integer)):
-                parts.append(f"{k}={float(v):.6g}")
-
-        print(" - ".join(parts))
+    def _print_progress(self, current_epoch, total_epochs, logs):
+        """Print progress bar with metrics"""
+        progress = current_epoch / total_epochs
+        bar_length = 30
+        filled_length = int(bar_length * progress)
+        
+        bar = '=' * filled_length + '>' + '.' * (bar_length - filled_length - 1)
+        metrics_str = ' '.join([f'{k}: {v:.4f}' for k, v in logs.items()])
+        
+        sys.stdout.write(f'\rEpoch {current_epoch}/{total_epochs} [{bar}] {metrics_str}')
+        sys.stdout.flush()
