@@ -1,6 +1,7 @@
 # nn/kfold.py
 
 import numpy as np
+from sklearn.model_selection import StratifiedKFold
 
 
 def kfold_cross_validation(
@@ -17,20 +18,12 @@ def kfold_cross_validation(
     **fit_kwargs
 ):
     
-    if seed is not None:
-        rng = np.random.default_rng(seed)
-    else:
-        rng = np.random.default_rng()
+   # StratifiedKFold per split bilanciati
+    skf = StratifiedKFold(n_splits=k, shuffle=shuffle, random_state=seed)
 
-    # Shuffle data
-    if shuffle:
-        indices = rng.permutation(len(X))
-        X = X[indices]
-        y = y[indices]
+    # Flatten y se necessario per StratifiedKFold
+    y_flat = y.ravel() if y.ndim > 1 else y
 
-    # Split into k folds
-    X_folds = np.array_split(X, k)
-    y_folds = np.array_split(y, k)
 
     fold_results = []
     histories = []
@@ -38,18 +31,15 @@ def kfold_cross_validation(
     print(f"\nStarting {k}-Fold Cross Validation")
     print("=" * 60)
 
-    for fold_idx in range(k):
+    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X, y_flat)):
         if verbose >= 1:
             print(f"\n{'='*60}")
             print(f"Fold {fold_idx + 1}/{k}")
             print('='*60)
 
-        # Create train/val split
-        X_val = X_folds[fold_idx]
-        y_val = y_folds[fold_idx]
-
-        X_train = np.concatenate([X_folds[i] for i in range(k) if i != fold_idx])
-        y_train = np.concatenate([y_folds[i] for i in range(k) if i != fold_idx])
+        # Split con indici
+        X_train, X_val = X[train_idx], X[val_idx]
+        y_train, y_val = y[train_idx], y[val_idx]
 
         if verbose >= 2:
             print(f"Train samples: {len(X_train)}, Val samples: {len(X_val)}")
@@ -83,8 +73,11 @@ def kfold_cross_validation(
 
         if verbose >= 1:
             print(f"\nFold {fold_idx + 1} Results:")
-            print(f"  Train: {_format_metrics(train_metrics)}")
-            print(f"  Val:   {_format_metrics(val_metrics)}")
+            for name, val in train_metrics.items():
+                print(f"  Train {name}: {val:.4f}")
+            for name, val in val_metrics.items():
+                print(f"  Val {name}: {val:.4f}")
+
 
     # Compute statistics across folds
     train_stats = _compute_fold_statistics(fold_results, "train_metrics")
@@ -95,9 +88,12 @@ def kfold_cross_validation(
     print(f"K-Fold Cross Validation Summary ({k} folds)")
     print('='*60)
     print("\nTraining Metrics (mean ± std):")
-    _print_statistics(train_stats)
+    for metric_name, stat in train_stats.items():
+        print(f"  {metric_name:12s}: {stat['mean']:.4f} ± {stat['std']:.4f}")
     print("\nValidation Metrics (mean ± std):")
-    _print_statistics(val_stats)
+    for metric_name, stat in val_stats.items():
+        print(f"  {metric_name:12s}: {stat['mean']:.4f} ± {stat['std']:.4f}")
+
     print('='*60)
 
     return train_stats, val_stats, histories, fold_results
@@ -138,15 +134,3 @@ def _compute_fold_statistics(fold_results, key):
 
     return stats
 
-
-def _format_metrics(metrics_dict):
-    """Format metrics dictionary as string."""
-    return ", ".join([f"{k}={v:.4f}" for k, v in metrics_dict.items()])
-
-
-def _print_statistics(stats_dict):
-    """Print statistics in a readable format."""
-    for metric_name, stat in stats_dict.items():
-        mean = stat["mean"]
-        std = stat["std"]
-        print(f"  {metric_name:12s}: {mean:.4f} ± {std:.4f}")
