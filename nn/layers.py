@@ -27,6 +27,10 @@ class Dense(Module):
         
         # Cache for backward pass
         self._X_cache = None
+
+        # AGGIUNGI QUESTE 2 RIGHE:
+        self._initializer = initializer
+        self._seed = seed
     
     def forward(self, X, training=True):
         """Linear transformation: Y = X @ W + b"""
@@ -58,3 +62,13 @@ class Dense(Module):
         """Yield (param, grad) pairs for optimizer"""
         yield self.W, self.dW
         yield self.b, self.db
+
+    def reset(self):
+        """Reinitialize weights and biases to random values."""
+        in_dim, out_dim = self.W.shape
+        rng = np.random.default_rng(self._seed)
+        self.W = self._initializer(in_dim, out_dim, rng)
+        self.b = np.zeros((1, out_dim))
+        self.dW = np.zeros_like(self.W)
+        self.db = np.zeros_like(self.b)
+        self._X_cache = None

@@ -188,6 +188,33 @@ class Model:
         y_proba = self.predict_proba(X)
         return (y_proba >= threshold).astype(int)
 
+    def reset(self):
+        """
+        Reset model to initial state.
+        - Reinitializes all learnable parameters (weights, biases)
+        - Resets optimizer state (momentum, Adam state, etc.)
+        - Clears callback state if present
+        """
+        # Reset all modules (layers, activations, dropout, etc.)
+        for module in self.modules:
+            if hasattr(module, 'reset'):
+                module.reset()
+        
+        # Reset optimizer state
+        if self.optimizer is not None:
+            if hasattr(self.optimizer, 'velocities'):
+                self.optimizer.velocities = {}  # SGDMomentum
+            if hasattr(self.optimizer, 'm'):
+                self.optimizer.m = {}  # Adam
+                self.optimizer.v = {}
+                self.optimizer.t = 0
+        
+        # Reset callbacks
+        for cb in (self.callbacks or []):
+            if hasattr(cb, 'reset'):
+                cb.reset()
+
+
     def __repr__(self):
         """String representation of the model"""
         lines = ["Model("]
