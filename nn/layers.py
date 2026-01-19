@@ -19,7 +19,7 @@ class Dense(Module):
         
         # Initialize parameters
         self.W = initializer(in_dim, out_dim, rng)
-        self.b = np.zeros((1, out_dim))
+        self.b = zeros(1, out_dim, rng)
         
         # Initialize gradients
         self.dW = np.zeros_like(self.W)
@@ -28,7 +28,6 @@ class Dense(Module):
         # Cache for backward pass
         self._X_cache = None
 
-        # AGGIUNGI QUESTE 2 RIGHE:
         self._initializer = initializer
         self._seed = seed
     
@@ -68,7 +67,7 @@ class Dense(Module):
         in_dim, out_dim = self.W.shape
         rng = np.random.default_rng(self._seed)
         self.W = self._initializer(in_dim, out_dim, rng)
-        self.b = np.zeros((1, out_dim))
+        self.b = zeros(1, out_dim, rng)
         self.dW = np.zeros_like(self.W)
         self.db = np.zeros_like(self.b)
         self._X_cache = None
