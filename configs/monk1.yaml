@@ -1,0 +1,42 @@
+base:
+  seed: 42
+
+  data:
+    monk: 1
+    train_path: "data/MONK/MONK1/monks-1.train"
+
+  split:
+    val_size: 0.2
+
+  model:
+    hidden_units: 16
+    activation: "tanh"
+    dropout: 0.0
+
+  optim:
+    lr: 0.1
+    momentum: 0.0
+
+  regularizer:
+    l2: 0.0
+
+  callbacks:
+    early_stopping: true
+    monitor: "val_loss"
+    patience: 40
+    min_delta: 0.0
+    mode: "auto"
+    restore_best_weights: true
+    verbose: 0
+
+  training:
+    epochs: 800
+    batch_size: 32
+    shuffle: true
+    include_reg_in_val: false
+
+grid:
+  model.hidden_units: [4, 8]
+  model.dropout: [0.0, 0.2]
+  optim.lr: [0.1, 0.05]
+  training.batch_size: [16]
