@@ -1,0 +1,68 @@
+{
+  "refined": {
+    "model.dropout": {
+      "clip": [
+        0.0,
+        0.8
+      ],
+      "max_topk": 0.2,
+      "min_topk": 0.0,
+      "sig_digits": 1,
+      "steps": 5,
+      "values": [
+        0.0,
+        0.05,
+        0.1,
+        0.2
+      ]
+    },
+    "optim.lr": {
+      "clip": [
+        0.0001,
+        1.0
+      ],
+      "max_topk": 0.2,
+      "min_topk": 0.1,
+      "sig_digits": 1,
+      "steps": 5,
+      "values": [
+        0.1,
+        0.2
+      ]
+    },
+    "optim.momentum": {
+      "clip": [
+        0.0,
+        0.99
+      ],
+      "max_topk": 0.9,
+      "min_topk": 0.0,
+      "sig_digits": 1,
+      "steps": 5,
+      "values": [
+        0.0,
+        0.2,
+        0.5,
+        0.7,
+        0.9
+      ]
+    },
+    "regularizer.l2": {
+      "clip": [
+        0.0,
+        0.01
+      ],
+      "max_topk": 0.001,
+      "min_topk": 0.0,
+      "sig_digits": 1,
+      "steps": 5,
+      "values": [
+        0.0,
+        0.0003,
+        0.0005,
+        0.0008,
+        0.001
+      ]
+    }
+  }
+}
