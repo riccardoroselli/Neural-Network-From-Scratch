@@ -1,7 +1,6 @@
-# nn/holdout_sklearn.py
-
 import numpy as np
 from sklearn.model_selection import train_test_split
+from data_handler.data_loader import normalize
 
 def holdout_validation(
     X,
@@ -9,29 +8,28 @@ def holdout_validation(
     model,
     trainer,
     val_split=0.2,
-    stratified=False,  # Nuovo parametro per attivare la stratificazione
+    stratified=False,
     epochs=100,
     batch_size=32,
     shuffle=True,
     seed=None,
     verbose=1,
+    include_reg_in_val=False,
+    normalize_data=False,    # Normalizzazione Input (X)
+    normalize_target=False,  # Normalizzazione Target (y)
     **fit_kwargs
 ):
     """
-    Esegue una validazione Holdout utilizzando train_test_split di scikit-learn.
-    Supporta la stratificazione per problemi di classificazione.
+    Esegue Holdout Validation con opzione per normalizzare X e y.
+    Evita il data leakage calcolando le statistiche solo sul Train.
     """
     
-    # Gestione del parametro stratify
-    # Se stratified=True, usiamo le etichette y per bilanciare il split.
-    # Nota: stratify richiede shuffle=True.
+    # Gestione stratificazione
     stratify_param = y if stratified else None
-    
     if stratified and not shuffle:
-        print("Warning: 'stratified' è True ma 'shuffle' è False. La stratificazione richiede lo shuffle. Forzo shuffle=True.")
         shuffle = True
 
-    # Utilizzo di train_test_split di scikit-learn
+    # 1. SPLIT
     X_train, X_val, y_train, y_val = train_test_split(
         X, 
         y, 
@@ -41,21 +39,36 @@ def holdout_validation(
         stratify=stratify_param
     )
 
-    if verbose >= 1:
-        print(f"\nStarting Holdout Validation (Sklearn)")
-        print("=" * 60)
-        print(f"Split params: val_split={val_split}, stratified={stratified}, seed={seed}")
-        print(f"Train samples: {len(X_train)}, Val samples: {len(X_val)}")
+    # 2. NORMALIZZAZIONE INPUT (X)
+    if normalize_data:
+        # Fit su Train
+        X_train, mean_x, std_x = normalize(X_train)
+        # Transform su Val (usando statistiche train)
+        X_val, _, _ = normalize(X_val, mean=mean_x, std=std_x)
         
-        # Se stratificato o classificazione, potrebbe essere utile stampare la distribuzione delle classi
-        if stratified or (len(y.shape) == 1 or y.shape[1] == 1):
-             # Esempio basilare per stampare distribuzione classi (assumendo y scalari o one-hot decodificati)
-             pass 
+        if verbose >= 1:
+            print(f"[Holdout] X Normalized. Train Mean[0]={mean_x[0]:.3f}")
 
-    # Reset model weights
+    # 3. NORMALIZZAZIONE TARGET (y)
+    if normalize_target:
+        # Fit su Train
+        y_train, mean_y, std_y = normalize(y_train)
+        # Transform su Val
+        # È necessario scalare anche y_val perché il modello predirà valori scalati,
+        # quindi la loss deve essere calcolata confrontando mele con mele.
+        y_val, _, _ = normalize(y_val, mean=mean_y, std=std_y)
+        
+        if verbose >= 1:
+            print(f"[Holdout] y Normalized. Train Mean[0]={mean_y[0]:.3f}")
+
+    if verbose >= 1:
+        print(f"\nStarting Holdout Validation")
+        print(f"Train samples: {len(X_train)}, Val samples: {len(X_val)}")
+
+    # Reset pesi modello
     model.reset()
 
-    # Train
+    # 4. TRAIN
     history = trainer.fit(
         X_train=X_train,
         y_train=y_train,
@@ -63,19 +76,14 @@ def holdout_validation(
         y_val=y_val,
         epochs=epochs,
         batch_size=batch_size,
-        shuffle=True, # Shuffle dei batch durante il training (indipendente dallo split)
+        shuffle=True,
         seed=seed,
+        include_reg_in_val=include_reg_in_val,
         **fit_kwargs
     )
 
-    # Evaluate on train and val
+    # 5. EVALUATE (Nota: le metriche saranno nella scala normalizzata se normalize_target=True)
     train_metrics = trainer.evaluate(X_train, y_train, batch_size=batch_size)
     val_metrics = trainer.evaluate(X_val, y_val, batch_size=batch_size)
-
-    if verbose >= 1:
-        print(f"\nResults:")
-        print(f"  Train: {train_metrics}")
-        print(f"  Val: {val_metrics}")
-        print('='*60)
 
     return train_metrics, val_metrics, history

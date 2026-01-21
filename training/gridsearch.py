@@ -1,3 +1,4 @@
+
 # training/gridsearch.py
 import csv
 import hashlib
@@ -120,11 +121,16 @@ def _run_holdout(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
     training_cfg = run_cfg.get("training", {})
     callbacks_cfg = run_cfg.get("callbacks", {})
     split_cfg = run_cfg.get("split", {})
+    data_cfg = run_cfg.get("data", {}) # <--- LEGGI DATA CONFIG
 
     epochs = int(training_cfg.get("epochs", 200))
     batch_size = int(training_cfg.get("batch_size", 32))
     shuffle = bool(training_cfg.get("shuffle", True))
     include_reg_in_val = bool(training_cfg.get("include_reg_in_val", False))
+    
+    # Parametro normalizzazione
+    normalize_data = bool(data_cfg.get("normalize", False)) # <--- NUOVO
+    normalize_target = bool(data_cfg.get("normalize_target", False))
 
     val_size = float(split_cfg.get("val_size", 0.2))
     stratified = bool(split_cfg.get("stratified", True))
@@ -143,6 +149,8 @@ def _run_holdout(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
         seed=seed,
         verbose=0,
         include_reg_in_val=include_reg_in_val,
+        normalize_data=normalize_data, # <--- PASSA IL PARAMETRO
+        normalize_target=normalize_target
     )
     t1 = time.time()
 
@@ -164,11 +172,16 @@ def _run_kfold(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
     training_cfg = run_cfg.get("training", {})
     cv_cfg = run_cfg.get("cv", {})
     callbacks_cfg = run_cfg.get("callbacks", {})
+    data_cfg = run_cfg.get("data", {}) # <--- LEGGI DATA CONFIG
 
     epochs = int(training_cfg.get("epochs", 200))
     batch_size = int(training_cfg.get("batch_size", 32))
     shuffle = bool(training_cfg.get("shuffle", True))
     include_reg_in_val = bool(training_cfg.get("include_reg_in_val", False))
+    
+    # Parametro normalizzazione
+    normalize_data = bool(data_cfg.get("normalize", False)) # <--- NUOVO
+    normalize_target = bool(data_cfg.get("normalize_target", False))
 
     k = int(cv_cfg.get("k", 5))
     shuffle_cv = bool(cv_cfg.get("shuffle", True))
@@ -187,6 +200,8 @@ def _run_kfold(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
         seed=cv_seed,
         verbose=0,
         include_reg_in_val=include_reg_in_val,
+        normalize_data=normalize_data, # <--- PASSA IL PARAMETRO
+        normalize_target=normalize_target
     )
     t1 = time.time()
 

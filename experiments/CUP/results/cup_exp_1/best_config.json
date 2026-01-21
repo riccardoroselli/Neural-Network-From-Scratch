@@ -1,0 +1,52 @@
+{
+  "callbacks": {
+    "early_stopping": true,
+    "min_delta": "1e-5",
+    "mode": "min",
+    "monitor": "val_loss",
+    "patience": 50,
+    "restore_best_weights": true,
+    "verbose": 0
+  },
+  "cv": {
+    "k": 5,
+    "seed": 42,
+    "shuffle": true
+  },
+  "data": {
+    "inputs": 12,
+    "normalize": true,
+    "targets": 4,
+    "train_path": "data/CUP/internal_train_80.csv"
+  },
+  "model": {
+    "activation": "relu",
+    "dropout": 0.0,
+    "hidden_units": [
+      8,
+      6
+    ],
+    "output_activation": "linear"
+  },
+  "optim": {
+    "lr": 0.001,
+    "momentum": 0.7,
+    "name": "sgd"
+  },
+  "regularizer": {
+    "l2": 0.08
+  },
+  "seed": 42,
+  "split": {
+    "stratified": false,
+    "val_size": 0.2
+  },
+  "training": {
+    "batch_size": 32,
+    "epochs": 800,
+    "include_reg_in_val": false,
+    "loss": "mee",
+    "metric": "mee",
+    "shuffle": true
+  }
+}

@@ -1,8 +1,6 @@
-# nn/kfold.py
-
 import numpy as np
-from sklearn.model_selection import StratifiedKFold
-
+from sklearn.model_selection import StratifiedKFold, KFold
+from data_handler.data_loader import normalize
 
 def kfold_cross_validation(
     X,
@@ -15,39 +13,77 @@ def kfold_cross_validation(
     shuffle=True,
     seed=None,
     verbose=1,
+    include_reg_in_val=False,
+    normalize_data=False,    # Normalizzazione Input (X)
+    normalize_target=False,  # Normalizzazione Target (y)
     **fit_kwargs
 ):
+    """
+    Esegue K-Fold Cross Validation con normalizzazione dinamica per fold.
+    """
+
+    # --- RILEVAMENTO TIPO TASK (Regressione vs Classificazione) ---
+    is_regression = False
     
-   # StratifiedKFold per split bilanciati
-    skf = StratifiedKFold(n_splits=k, shuffle=shuffle, random_state=seed)
+    # 1. Controllo tipo dati
+    try:
+        if np.issubdtype(y.dtype, np.floating):
+            is_regression = True
+    except:
+        pass
 
-    # Flatten y se necessario per StratifiedKFold
-    y_flat = y.ravel() if y.ndim > 1 else y
+    # 2. Controllo dimensioni (Multi-output = Regressione, es. CUP)
+    # StratifiedKFold rompe se y ha shape (N, 4)
+    if y.ndim > 1 and y.shape[1] > 1:
+        is_regression = True
 
+    # --- SELEZIONE SPLITTER ---
+    if is_regression:
+        if verbose >= 1: 
+            print(f"Task: Regression/Multi-output detected (y shape: {y.shape}) -> Using Standard KFold")
+        # KFold accetta y multi-dimensionale senza problemi
+        cv = KFold(n_splits=k, shuffle=shuffle, random_state=seed)
+        y_split = y 
+    else:
+        if verbose >= 1:
+            print(f"Task: Classification detected -> Using StratifiedKFold")
+        cv = StratifiedKFold(n_splits=k, shuffle=shuffle, random_state=seed)
+        # Stratified richiede y 1D
+        y_split = y.ravel() if y.ndim > 1 else y
 
     fold_results = []
     histories = []
 
     print(f"\nStarting {k}-Fold Cross Validation")
-    print("=" * 60)
 
-    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X, y_flat)):
+    # Ciclo sui Fold
+    for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X, y_split)):
         if verbose >= 1:
-            print(f"\n{'='*60}")
             print(f"Fold {fold_idx + 1}/{k}")
-            print('='*60)
 
-        # Split con indici
+        # Slice dei dati grezzi
         X_train, X_val = X[train_idx], X[val_idx]
         y_train, y_val = y[train_idx], y[val_idx]
 
-        if verbose >= 2:
-            print(f"Train samples: {len(X_train)}, Val samples: {len(X_val)}")
+        # --- NORMALIZZAZIONE INPUT (X) ---
+        if normalize_data:
+            # Calcolo statistiche su questo specifico training fold
+            X_train, mean_x, std_x = normalize(X_train)
+            # Applico le stesse statistiche al validation fold
+            X_val, _, _ = normalize(X_val, mean=mean_x, std=std_x)
 
-        # Reset model weights
+        # --- NORMALIZZAZIONE TARGET (y) ---
+        if normalize_target:
+            # Calcolo statistiche su questo specifico training fold
+            y_train, mean_y, std_y = normalize(y_train)
+            # Applico le stesse statistiche al validation fold
+            # Fondamentale per avere una Loss coerente (MSE su dati scalati)
+            y_val, _, _ = normalize(y_val, mean=mean_y, std=std_y)
+
+        # Reset Modello
         model.reset()
 
-        # Train
+        # Training
         history = trainer.fit(
             X_train=X_train,
             y_train=y_train,
@@ -57,10 +93,11 @@ def kfold_cross_validation(
             batch_size=batch_size,
             shuffle=shuffle,
             seed=seed + fold_idx if seed is not None else None,
+            include_reg_in_val=include_reg_in_val,
             **fit_kwargs
         )
 
-        # Evaluate on train and val
+        # Valutazione
         train_metrics = trainer.evaluate(X_train, y_train, batch_size=batch_size)
         val_metrics = trainer.evaluate(X_val, y_val, batch_size=batch_size)
 
@@ -71,66 +108,20 @@ def kfold_cross_validation(
         })
         histories.append(history)
 
-        if verbose >= 1:
-            print(f"\nFold {fold_idx + 1} Results:")
-            for name, val in train_metrics.items():
-                print(f"  Train {name}: {val:.4f}")
-            for name, val in val_metrics.items():
-                print(f"  Val {name}: {val:.4f}")
+    # Helper per aggregare le statistiche
+    def _compute_stats(results, key):
+        stats = {}
+        if not results: return stats
+        metric_names = results[0][key].keys()
+        for m in metric_names:
+            vals = [r[key][m] for r in results]
+            stats[m] = {
+                "mean": float(np.mean(vals)),
+                "std": float(np.std(vals))
+            }
+        return stats
 
-
-    # Compute statistics across folds
-    train_stats = _compute_fold_statistics(fold_results, "train_metrics")
-    val_stats = _compute_fold_statistics(fold_results, "val_metrics")
-
-    # Print summary
-    print(f"\n{'='*60}")
-    print(f"K-Fold Cross Validation Summary ({k} folds)")
-    print('='*60)
-    print("\nTraining Metrics (mean ± std):")
-    for metric_name, stat in train_stats.items():
-        print(f"  {metric_name:12s}: {stat['mean']:.4f} ± {stat['std']:.4f}")
-    print("\nValidation Metrics (mean ± std):")
-    for metric_name, stat in val_stats.items():
-        print(f"  {metric_name:12s}: {stat['mean']:.4f} ± {stat['std']:.4f}")
-
-    print('='*60)
+    train_stats = _compute_stats(fold_results, "train_metrics")
+    val_stats = _compute_stats(fold_results, "val_metrics")
 
     return train_stats, val_stats, histories, fold_results
-
-
-def _compute_fold_statistics(fold_results, key):
-    """
-    Compute mean and std of metrics across folds.
-
-    Parameters
-    ----------
-    fold_results : list
-        List of fold results
-    key : str
-        Key to extract from each fold ("train_metrics" or "val_metrics")
-
-    Returns
-    -------
-    dict : {"metric_name": {"mean": ..., "std": ...}, ...}
-    """
-    # Collect all metrics
-    all_metrics = {}
-    for fold in fold_results:
-        metrics = fold[key]
-        for metric_name, value in metrics.items():
-            if metric_name not in all_metrics:
-                all_metrics[metric_name] = []
-            all_metrics[metric_name].append(float(value))
-
-    # Compute statistics
-    stats = {}
-    for metric_name, values in all_metrics.items():
-        stats[metric_name] = {
-            "mean": float(np.mean(values)),
-            "std": float(np.std(values)),
-            "values": values
-        }
-
-    return stats
-

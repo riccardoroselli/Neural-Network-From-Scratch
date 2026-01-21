@@ -27,6 +27,9 @@ class Dropout(Module):
         return (X * self.mask) / self.keep_prob
     
     def backward(self, dY):
-        if self.mask is None:
-            return dY
+        # Protezione contro divisione per zero e overflow
+        if self.keep_prob < 1e-10:
+            return np.zeros_like(dY)
+            
+        # Calcolo standard (Inverted Dropout)
         return (dY * self.mask) / self.keep_prob
