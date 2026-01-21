@@ -1,19 +1,10 @@
 # training/refine_grid.py
-from __future__ import annotations
-
-from typing import Any, Dict, List, Tuple
 import math
 import numpy as np
 
 
-def round_sig(x: float, sig: int = 1) -> float:
-    """
-    Round x to `sig` significant digits (default: 1 significant digit).
-    Examples:
-      0.083 -> 0.08  (sig=1 => 0.08? actually 0.08 has 1 sig digit? It's 8e-2)
-      0.012 -> 0.01
-      123.0 -> 100.0
-    """
+def round_sig(x, sig=1):
+    """Round x to `sig` significant digits."""
     if x == 0.0:
         return 0.0
     if not math.isfinite(x):
@@ -21,8 +12,8 @@ def round_sig(x: float, sig: int = 1) -> float:
     return round(x, sig - int(math.floor(math.log10(abs(x)))) - 1)
 
 
-def _get_by_path(d: Dict[str, Any], path: str) -> Any:
-    cur: Any = d
+def _get_by_path(d, path):
+    cur = d
     for p in path.split("."):
         if not isinstance(cur, dict) or p not in cur:
             raise KeyError(path)
@@ -30,20 +21,14 @@ def _get_by_path(d: Dict[str, Any], path: str) -> Any:
     return cur
 
 
-def compute_minmax_from_topk(
-    topk_cfgs: List[Dict[str, Any]],
-    param_path: str,
-) -> Tuple[float, float]:
-    """
-    Extract scalar values for param_path from each config in topk_cfgs and return (min, max).
-    """
-    vals: List[float] = []
+def compute_minmax_from_topk(topk_cfgs, param_path):
+    """Extract scalar values for param_path from each config in topk_cfgs and return (min, max)."""
+    vals = []
     for cfg in topk_cfgs:
         try:
             v = _get_by_path(cfg, param_path)
         except KeyError:
             continue
-        # refinable keys must be scalar numeric
         vals.append(float(v))
 
     if len(vals) == 0:
@@ -51,17 +36,8 @@ def compute_minmax_from_topk(
     return float(min(vals)), float(max(vals))
 
 
-def build_linear_values(
-    low: float,
-    high: float,
-    steps: int = 5,
-    sig_digits: int = 1,
-    clip: Tuple[float, float] | None = None,
-) -> List[float]:
-    """
-    Create `steps` linearly spaced values in [low, high], rounded to `sig_digits`
-    significant digits, clipped if requested, then unique-sorted.
-    """
+def build_linear_values(low, high, steps=5, sig_digits=1, clip=None):
+    """Create `steps` linearly spaced values in [low, high], rounded and clipped."""
     steps = int(steps)
     if steps <= 1:
         steps = 1
@@ -74,49 +50,22 @@ def build_linear_values(
 
     arr = np.linspace(float(low), float(high), num=steps, dtype=float)
 
-    out: List[float] = []
+    out = []
     for v in arr.tolist():
         rv = round_sig(float(v), sig=sig_digits)
         if clip is not None:
             rv = min(max(rv, clip[0]), clip[1])
         out.append(rv)
 
-    # unique + sorted
     out = sorted(set(out))
     return out
 
 
-def refine_grid_from_topk(
-    coarse_grid: Dict[str, Any],
-    topk_cfgs: List[Dict[str, Any]],
-    rules: Dict[str, Any],
-    steps: int = 5,
-    sig_digits: int = 1,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    """
-    Build a refined fine grid from coarse grid + topK configs.
+def refine_grid_from_topk(coarse_grid, topk_cfgs, rules, steps=5, sig_digits=1):
+    """Build a refined fine grid from coarse grid + topK configs using linear spacing and rounding."""
+    fine_grid = dict(coarse_grid)
+    report = {"refined": {}}
 
-    SPECIFICATIONS (as requested):
-      - refinable keys explicitly come from `rules` mapping
-      - bounds are computed with MIN/MAX over top-K (NO quantiles)
-      - NO expansion (no 0.8/1.2 multipliers)
-      - values are generated with LINEAR spacing
-      - default steps=5
-      - values rounded to ONE significant digit (sig_digits=1 by default)
-      - clipping rules supported via rules[key]["clip"] = [low, high]
-      - categorical parameters kept EXACTLY as in coarse grid (Approach B):
-          fine grid starts as a copy of coarse grid, then overrides only refinable keys
-
-    Returns:
-      fine_grid: dict path->list
-      report: dict describing bounds and generated values
-    """
-    # Approach B: keep all coarse grid entries by default
-    fine_grid: Dict[str, Any] = dict(coarse_grid)
-
-    report: Dict[str, Any] = {"refined": {}}
-
-    # Override only refinable keys
     for param_path, rule in (rules or {}).items():
         low, high = compute_minmax_from_topk(topk_cfgs, param_path)
 

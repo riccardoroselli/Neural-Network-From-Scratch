@@ -1,13 +1,9 @@
 # training/gridsearch.py
-from __future__ import annotations
-
 import csv
 import hashlib
 import json
 import os
 import time
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -17,39 +13,12 @@ from .holdout_cv import holdout_validation
 from .kfold_cv import kfold_cross_validation
 
 
-# ----------------------------- types -----------------------------
-
-BuildModelFn = Callable[[Dict[str, Any], int], Any]
-LoadFullDataFn = Callable[[Dict[str, Any]], Tuple[np.ndarray, np.ndarray]]
-
-
-@dataclass
-class GridRow:
-    config_id: str
-    seed: int
-    mode: str
-    objective: str
-    objective_mode: str
-    score_mean: Optional[float]
-    score_std: Optional[float]
-    val_loss_mean: Optional[float]
-    val_loss_std: Optional[float]
-    val_acc_mean: Optional[float]
-    val_acc_std: Optional[float]
-    best_epoch_mean: Optional[float]
-    best_epoch_std: Optional[float]
-    train_time_sec: float
-    config_json: str
-
-
-# ----------------------------- helpers -----------------------------
-
-def _hash_config(cfg: Dict[str, Any]) -> str:
+def _hash_config(cfg):
     s = json.dumps(cfg, sort_keys=True, separators=(",", ":"))
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:12]
 
 
-def _safe_float(x: Any) -> Optional[float]:
+def _safe_float(x):
     if x is None:
         return None
     try:
@@ -58,15 +27,14 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
 
 
-def _infer_mode_from_monitor(monitor: str) -> str:
+def _infer_mode_from_monitor(monitor):
     m = monitor.lower()
     if "acc" in m or "accuracy" in m:
         return "max"
     return "min"
 
 
-def _get_val_acc_key(metrics_dict: Dict[str, Any]) -> Optional[str]:
-    # Prefer "Accuracy" if present, otherwise first non-loss key
+def _get_val_acc_key(metrics_dict):
     if "Accuracy" in metrics_dict:
         return "Accuracy"
     for k in metrics_dict.keys():
@@ -75,45 +43,32 @@ def _get_val_acc_key(metrics_dict: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _compute_objective(value: Optional[float], objective_mode: str) -> Optional[float]:
-    # Objective is already in the scale you want: for selection we use mean values directly.
-    # This hook exists in case you ever want to negate "max" objectives, etc.
+def _compute_objective(value, objective_mode):
     if value is None:
         return None
     return float(value)
 
 
-def _extract_objective_from_metrics(
-    objective: str,
-    objective_mode: str,
-    val_loss_mean: Optional[float],
-    val_acc_mean: Optional[float],
-) -> Optional[float]:
+def _extract_objective_from_metrics(objective, objective_mode, val_loss_mean, val_acc_mean):
     obj = objective.strip()
     if obj == "val_loss":
         return _compute_objective(val_loss_mean, objective_mode)
     if obj in ("val_acc", "val_accuracy", "val_Accuracy"):
         return _compute_objective(val_acc_mean, objective_mode)
-    # fallback: if user passes "val_Accuracy" we treat it as val_acc
     if "acc" in obj.lower():
         return _compute_objective(val_acc_mean, objective_mode)
     return _compute_objective(val_loss_mean, objective_mode)
 
 
-def summarize_rows(rows: List[Dict[str, Any]], objective_mode: str) -> List[Dict[str, Any]]:
-    """
-    Aggregate per-config across seeds.
-
-    Input rows: the raw CSV rows from run_grid() (one row per config×seed).
-    Output: one row per config_id with means/stds.
-    """
-    by_cfg: Dict[str, List[Dict[str, Any]]] = {}
+def summarize_rows(rows, objective_mode):
+    """Aggregate per-config across seeds."""
+    by_cfg = {}
     for r in rows:
         by_cfg.setdefault(r["config_id"], []).append(r)
 
-    summary: List[Dict[str, Any]] = []
+    summary = []
     for cfg_id, rr in by_cfg.items():
-        def collect(key: str) -> List[float]:
+        def collect(key):
             out = []
             for x in rr:
                 v = _safe_float(x.get(key))
@@ -121,7 +76,7 @@ def summarize_rows(rows: List[Dict[str, Any]], objective_mode: str) -> List[Dict
                     out.append(v)
             return out
 
-        def mean_std(xs: List[float]) -> Tuple[Optional[float], Optional[float]]:
+        def mean_std(xs):
             if len(xs) == 0:
                 return None, None
             return float(np.mean(xs)), float(np.std(xs))
@@ -145,8 +100,7 @@ def summarize_rows(rows: List[Dict[str, Any]], objective_mode: str) -> List[Dict
             "config_json": rr[0]["config_json"],
         })
 
-    # sort by score_mean
-    def sort_key(x: Dict[str, Any]):
+    def sort_key(x):
         v = x.get("score_mean")
         if v is None:
             return np.inf if objective_mode == "min" else -np.inf
@@ -156,18 +110,8 @@ def summarize_rows(rows: List[Dict[str, Any]], objective_mode: str) -> List[Dict
     return summary
 
 
-# ----------------------------- evaluators -----------------------------
-
-def _run_holdout(
-    run_cfg: Dict[str, Any],
-    seed: int,
-    build_model_fn: BuildModelFn,
-    load_full_data_fn: LoadFullDataFn,
-    verbose: int,
-) -> Tuple[Dict[str, Any], Optional[int], float]:
-    """
-    Returns: (val_metrics, best_epoch, train_time_sec)
-    """
+def _run_holdout(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
+    """Returns: (val_metrics, best_epoch, train_time_sec)"""
     X, y = load_full_data_fn(run_cfg)
 
     model = build_model_fn(run_cfg, seed=seed)
@@ -185,7 +129,6 @@ def _run_holdout(
     val_size = float(split_cfg.get("val_size", 0.2))
     stratified = bool(split_cfg.get("stratified", True))
 
-    # run
     t0 = time.time()
     _, val_metrics, history = holdout_validation(
         X=X,
@@ -198,12 +141,11 @@ def _run_holdout(
         batch_size=batch_size,
         shuffle=shuffle,
         seed=seed,
-        verbose=0,  # keep grid clean
+        verbose=0,
         include_reg_in_val=include_reg_in_val,
     )
     t1 = time.time()
 
-    # best epoch from history (by val_loss)
     best_epoch = None
     h = history.to_dict()
     if "val_loss" in h and len(h["val_loss"]) > 0:
@@ -212,19 +154,8 @@ def _run_holdout(
     return val_metrics, best_epoch, float(t1 - t0)
 
 
-def _run_kfold(
-    run_cfg: Dict[str, Any],
-    seed: int,
-    build_model_fn: BuildModelFn,
-    load_full_data_fn: LoadFullDataFn,
-    verbose: int,
-) -> Tuple[Dict[str, Any], Optional[float], Optional[float], float]:
-    """
-    Returns:
-      val_stats: {"loss": {"mean","std"}, "Accuracy": {"mean","std"}, ...}
-      best_epoch_mean, best_epoch_std (computed from histories if available)
-      train_time_sec
-    """
+def _run_kfold(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
+    """Returns: (val_stats, best_epoch_mean, best_epoch_std, train_time_sec)"""
     X, y = load_full_data_fn(run_cfg)
 
     model = build_model_fn(run_cfg, seed=seed)
@@ -241,7 +172,6 @@ def _run_kfold(
 
     k = int(cv_cfg.get("k", 5))
     shuffle_cv = bool(cv_cfg.get("shuffle", True))
-    # seed used in StratifiedKFold
     cv_seed = int(cv_cfg.get("seed", seed))
 
     t0 = time.time()
@@ -255,13 +185,12 @@ def _run_kfold(
         batch_size=batch_size,
         shuffle=shuffle_cv,
         seed=cv_seed,
-        verbose=0,  # keep grid clean
+        verbose=0,
         include_reg_in_val=include_reg_in_val,
     )
     t1 = time.time()
 
-    # Compute best_epoch stats from histories (by val_loss)
-    best_epochs: List[float] = []
+    best_epochs = []
     for hist in histories:
         h = hist.to_dict()
         if "val_loss" in h and len(h["val_loss"]) > 0:
@@ -277,34 +206,21 @@ def _run_kfold(
     return val_stats, best_epoch_mean, best_epoch_std, float(t1 - t0)
 
 
-# ----------------------------- public API -----------------------------
-
 def run_grid(
-    config_path: str,
-    build_model_fn: BuildModelFn,
-    load_full_data_fn: LoadFullDataFn,
-    out_csv_path: str,
-    mode: str = "holdout",  # "holdout" | "kfold"
-    seeds: Optional[List[int]] = None,
-    objective: str = "val_loss",
-    objective_mode: str = "auto",
-    verbose: int = 0,
-) -> Dict[str, Any]:
-    """
-    Run a grid search in either holdout or k-fold mode.
-
-    Returns:
-      {
-        "best_config": dict,
-        "best_score": float,
-        "rows": list[dict],        # raw rows (per cfg×seed)
-        "summary": list[dict],     # aggregated per cfg
-      }
-    """
+    config_path,
+    build_model_fn,
+    load_full_data_fn,
+    out_csv_path,
+    mode="holdout",
+    seeds=None,
+    objective="val_loss",
+    objective_mode="auto",
+    verbose=0,
+):
+    """Run a grid search in either holdout or k-fold mode."""
     cfg = load_config(config_path)
     run_cfgs = expand_grid(cfg)
 
-    # seeds
     if seeds is None:
         base_seed = cfg.get("base", {}).get("seed", 0)
         seeds = [int(base_seed)]
@@ -339,7 +255,7 @@ def run_grid(
     ]
     write_header = not os.path.exists(out_csv_path)
 
-    rows: List[Dict[str, Any]] = []
+    rows = []
 
     total = len(run_cfgs) * len(seeds)
     done = 0
@@ -357,7 +273,6 @@ def run_grid(
                 if verbose:
                     print(f"[grid:{mode}] {done}/{total} config_id={config_id} seed={seed}")
 
-                # global numpy seed for any legacy np.random usage
                 np.random.seed(int(seed))
 
                 if mode == "holdout":
@@ -380,12 +295,10 @@ def run_grid(
                         run_cfg, seed, build_model_fn, load_full_data_fn, verbose=verbose
                     )
 
-                    # val_stats: {"loss": {"mean","std"}, "Accuracy": {"mean","std"}, ...}
                     loss_stat = val_stats.get("loss", {})
                     val_loss_mean = _safe_float(loss_stat.get("mean"))
                     val_loss_std = _safe_float(loss_stat.get("std"))
 
-                    # pick accuracy-like metric
                     acc_name = "Accuracy" if "Accuracy" in val_stats else None
                     if acc_name is None:
                         for k in val_stats.keys():
