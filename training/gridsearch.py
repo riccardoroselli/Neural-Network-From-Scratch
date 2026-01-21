@@ -13,6 +13,9 @@ from .trainer import Trainer
 from .holdout_cv import holdout_validation
 from .kfold_cv import kfold_cross_validation
 
+import concurrent.futures # <--- NUOVO IMPORT
+import multiprocessing    # <--- Opzionale, per contare le CPU
+
 
 def _hash_config(cfg):
     s = json.dumps(cfg, sort_keys=True, separators=(",", ":"))
@@ -220,6 +223,88 @@ def _run_kfold(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
 
     return val_stats, best_epoch_mean, best_epoch_std, float(t1 - t0)
 
+def process_single_run(args):
+    """
+    Funzione helper per eseguire una singola configurazione in un processo separato.
+    Accetta un singolo argomento 'args' che è una tupla (per compatibilità con map/submit).
+    """
+    (run_cfg, seed, mode, build_model_fn, load_full_data_fn, 
+     verbose, objective, objective_mode) = args
+
+    # Imposta il seed per questo processo
+    np.random.seed(int(seed))
+    
+    config_id = _hash_config(run_cfg)
+    
+    # Esecuzione Holdout o K-Fold
+    if mode == "holdout":
+        val_metrics, best_epoch, tsec = _run_holdout(
+            run_cfg, seed, build_model_fn, load_full_data_fn, verbose=verbose
+        )
+
+        val_loss_mean = _safe_float(val_metrics.get("loss"))
+        acc_key = _get_val_acc_key(val_metrics)
+        val_acc_mean = _safe_float(val_metrics.get(acc_key)) if acc_key else None
+
+        val_loss_std = 0.0 if val_loss_mean is not None else None
+        val_acc_std = 0.0 if val_acc_mean is not None else None
+
+        best_epoch_mean = float(best_epoch) if best_epoch is not None else None
+        best_epoch_std = 0.0 if best_epoch_mean is not None else None
+
+    else: # kfold
+        val_stats, best_epoch_mean, best_epoch_std, tsec = _run_kfold(
+            run_cfg, seed, build_model_fn, load_full_data_fn, verbose=verbose
+        )
+
+        loss_stat = val_stats.get("loss", {})
+        val_loss_mean = _safe_float(loss_stat.get("mean"))
+        val_loss_std = _safe_float(loss_stat.get("std"))
+
+        acc_name = "Accuracy" if "Accuracy" in val_stats else None
+        if acc_name is None:
+            for k in val_stats.keys():
+                if k != "loss":
+                    acc_name = k
+                    break
+
+        if acc_name is not None:
+            acc_stat = val_stats.get(acc_name, {})
+            val_acc_mean = _safe_float(acc_stat.get("mean"))
+            val_acc_std = _safe_float(acc_stat.get("std"))
+        else:
+            val_acc_mean = None
+            val_acc_std = None
+
+    # Calcolo dello score
+    score_mean = _extract_objective_from_metrics(
+        objective=objective,
+        objective_mode=objective_mode,
+        val_loss_mean=val_loss_mean,
+        val_acc_mean=val_acc_mean,
+    )
+    score_std = 0.0 if mode == "holdout" and score_mean is not None else None
+
+    # Restituisce il dizionario pronto per essere scritto nel CSV
+    row = {
+        "config_id": config_id,
+        "seed": int(seed),
+        "mode": mode,
+        "objective": objective,
+        "objective_mode": objective_mode,
+        "score_mean": score_mean,
+        "score_std": score_std,
+        "val_loss_mean": val_loss_mean,
+        "val_loss_std": val_loss_std,
+        "val_acc_mean": val_acc_mean,
+        "val_acc_std": val_acc_std,
+        "best_epoch_mean": best_epoch_mean,
+        "best_epoch_std": best_epoch_std,
+        "train_time_sec": float(tsec),
+        "config_json": json.dumps(run_cfg, sort_keys=True),
+    }
+    return row
+
 
 def run_grid(
     config_path,
@@ -231,8 +316,9 @@ def run_grid(
     objective="val_loss",
     objective_mode="auto",
     verbose=0,
+    n_jobs=-1  # <--- NUOVO PARAMETRO: numero di processi (-1 = tutti i core)
 ):
-    """Run a grid search in either holdout or k-fold mode."""
+    """Run a grid search using parallel processing."""
     cfg = load_config(config_path)
     run_cfgs = expand_grid(cfg)
 
@@ -242,122 +328,72 @@ def run_grid(
 
     if objective_mode == "auto":
         objective_mode = _infer_mode_from_monitor(objective)
-    if objective_mode not in ("min", "max"):
-        raise ValueError("objective_mode must be 'min', 'max', or 'auto'.")
 
     mode = mode.lower().strip()
-    if mode not in ("holdout", "kfold"):
-        raise ValueError("mode must be 'holdout' or 'kfold'.")
-
     os.makedirs(os.path.dirname(out_csv_path) or ".", exist_ok=True)
 
+    # ... (Codice dell'header identico a prima) ...
     header = [
-        "config_id",
-        "seed",
-        "mode",
-        "objective",
-        "objective_mode",
-        "score_mean",
-        "score_std",
-        "val_loss_mean",
-        "val_loss_std",
-        "val_acc_mean",
-        "val_acc_std",
-        "best_epoch_mean",
-        "best_epoch_std",
-        "train_time_sec",
-        "config_json",
+        "config_id", "seed", "mode", "objective", "objective_mode", 
+        "score_mean", "score_std", "val_loss_mean", "val_loss_std", 
+        "val_acc_mean", "val_acc_std", "best_epoch_mean", "best_epoch_std", 
+        "train_time_sec", "config_json"
     ]
     write_header = not os.path.exists(out_csv_path)
 
     rows = []
+    
+    # Preparazione lista dei task
+    tasks = []
+    for run_cfg in run_cfgs:
+        for seed in seeds:
+            # Creiamo una tupla con tutti gli argomenti necessari per il worker
+            task_args = (
+                run_cfg, seed, mode, build_model_fn, 
+                load_full_data_fn, verbose, objective, objective_mode
+            )
+            tasks.append(task_args)
 
-    total = len(run_cfgs) * len(seeds)
+    total = len(tasks)
     done = 0
+    
+    # Determinazione numero workers
+    if n_jobs < 1:
+        max_workers = multiprocessing.cpu_count()
+    else:
+        max_workers = n_jobs
 
+    print(f"Starting Grid Search with {max_workers} processes for {total} tasks...")
+
+    # Esecuzione parallela
     with open(out_csv_path, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=header)
         if write_header:
             writer.writeheader()
+        
+        # ProcessPoolExecutor gestisce i processi python
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Sottomettiamo tutti i task
+            futures = [executor.submit(process_single_run, t) for t in tasks]
+            
+            # as_completed ci dà i risultati man mano che finiscono
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    row = future.result()
+                    
+                    # Scrittura (avviene nel processo principale, quindi è safe)
+                    writer.writerow(row)
+                    f.flush() # Assicura che i dati siano scritti su disco
+                    rows.append(row)
+                    
+                    done += 1
+                    if verbose:
+                        print(f"[grid:{mode}] {done}/{total} Config completata.")
+                        
+                except Exception as e:
+                    print(f"Errore durante un run della grid search: {e}")
 
-        for run_cfg in run_cfgs:
-            config_id = _hash_config(run_cfg)
-
-            for seed in seeds:
-                done += 1
-                if verbose:
-                    print(f"[grid:{mode}] {done}/{total} config_id={config_id} seed={seed}")
-
-                np.random.seed(int(seed))
-
-                if mode == "holdout":
-                    val_metrics, best_epoch, tsec = _run_holdout(
-                        run_cfg, seed, build_model_fn, load_full_data_fn, verbose=verbose
-                    )
-
-                    val_loss_mean = _safe_float(val_metrics.get("loss"))
-                    acc_key = _get_val_acc_key(val_metrics)
-                    val_acc_mean = _safe_float(val_metrics.get(acc_key)) if acc_key else None
-
-                    val_loss_std = 0.0 if val_loss_mean is not None else None
-                    val_acc_std = 0.0 if val_acc_mean is not None else None
-
-                    best_epoch_mean = float(best_epoch) if best_epoch is not None else None
-                    best_epoch_std = 0.0 if best_epoch_mean is not None else None
-
-                else:
-                    val_stats, best_epoch_mean, best_epoch_std, tsec = _run_kfold(
-                        run_cfg, seed, build_model_fn, load_full_data_fn, verbose=verbose
-                    )
-
-                    loss_stat = val_stats.get("loss", {})
-                    val_loss_mean = _safe_float(loss_stat.get("mean"))
-                    val_loss_std = _safe_float(loss_stat.get("std"))
-
-                    acc_name = "Accuracy" if "Accuracy" in val_stats else None
-                    if acc_name is None:
-                        for k in val_stats.keys():
-                            if k != "loss":
-                                acc_name = k
-                                break
-
-                    if acc_name is not None:
-                        acc_stat = val_stats.get(acc_name, {})
-                        val_acc_mean = _safe_float(acc_stat.get("mean"))
-                        val_acc_std = _safe_float(acc_stat.get("std"))
-                    else:
-                        val_acc_mean = None
-                        val_acc_std = None
-
-                score_mean = _extract_objective_from_metrics(
-                    objective=objective,
-                    objective_mode=objective_mode,
-                    val_loss_mean=val_loss_mean,
-                    val_acc_mean=val_acc_mean,
-                )
-                score_std = 0.0 if mode == "holdout" and score_mean is not None else None
-
-                row = {
-                    "config_id": config_id,
-                    "seed": int(seed),
-                    "mode": mode,
-                    "objective": objective,
-                    "objective_mode": objective_mode,
-                    "score_mean": score_mean,
-                    "score_std": score_std,
-                    "val_loss_mean": val_loss_mean,
-                    "val_loss_std": val_loss_std,
-                    "val_acc_mean": val_acc_mean,
-                    "val_acc_std": val_acc_std,
-                    "best_epoch_mean": best_epoch_mean,
-                    "best_epoch_std": best_epoch_std,
-                    "train_time_sec": float(tsec),
-                    "config_json": json.dumps(run_cfg, sort_keys=True),
-                }
-
-                writer.writerow(row)
-                rows.append(row)
-
+    # ... (Codice di summary identico a prima) ...
     summary = summarize_rows(rows, objective_mode=objective_mode)
     best_cfg = None
     best_score = None

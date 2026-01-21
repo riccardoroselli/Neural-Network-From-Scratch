@@ -17,7 +17,7 @@ def build_model(run_cfg, seed):
     return build_model_from_cfg(run_cfg, seed=seed, in_dim=17, out_dim=1, task="binary")
 
 
-def run_monk_selection(config_path, out_dir, seeds, top_k):
+def run_monk_selection(config_path, out_dir, seeds, top_k, n_jobs=-1):
     return run_two_phase_selection(
         config_path=config_path,
         build_model_fn=build_model,
@@ -30,4 +30,5 @@ def run_monk_selection(config_path, out_dir, seeds, top_k):
         coarse_objective="val_loss",
         fine_objective="val_loss",
         verbose=1,
+        n_jobs=n_jobs
     )

@@ -9,7 +9,7 @@ selection:
       optim.lr: {clip: [1e-5, 0.1]}
       regularizer.l2: {clip: [0, 1e-1]}
       model.dropout: {clip: [0.0, 0.8]}
-      optim.momentum: {clip: [0.4, 0.99]}
+      optim.momentum: {clip: [0.0, 0.99]}
 
 base:
   seed: 42
@@ -77,19 +77,23 @@ grid:
   # 1) Architectures
   # Il CUP è più complesso del MONK. Proviamo reti più capaci.
   model.hidden_units:
-      - [8, 6]
       - [8]
+      - [8, 6]
+      - [24, 12]
+      - [24, 12, 6]
+      - [64, 32, 16]
+      - [24, 48, 24]
     # - [32, 32]      # Media profondità
     # - [16, 32, 16]
     # - [32, 16, 8]  # Profonda
     # - [128, 64, 32] # Funnel (imbuto)
 
   # 2) Activation
-  model.activation: ["tanh", "relu"]
+  model.activation: ["tanh", "relu", "sigmoid"]
 
   # 3) Regularization (Cruciale con pochi dati - 400 sample)
   model.dropout: [0.0, 0.2, 0.5]
-  regularizer.l2: [1e-4, 1e-3, 1e-2, 1e-1]
+  regularizer.l2: [1e-5, 1e-4, 1e-3, 1e-2]
 
   # 4) Optimizer
   optim.name: ["sgd"] # Focalizziamoci su SGD+Momentum che spesso generalizza meglio
@@ -97,7 +101,7 @@ grid:
   # I Learning Rate per regressione sono spesso più bassi
   optim.lr: [0.1, 0.01, 0.001]  
   
-  optim.momentum: [0.2, 0.6, 0.9]
+  optim.momentum: [0.5, 0.9]
 
   # 5) Training
   training.batch_size: [16, 32, 64] 

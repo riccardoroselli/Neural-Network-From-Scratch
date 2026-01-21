@@ -46,7 +46,7 @@ def create_internal_split(original_path, train_save_path, test_save_path, test_r
     save_dummy(test_save_path, test_data)
     print(f"[CUP] Saved split: {train_save_path}, {test_save_path}")
 
-def run_cup_selection(config_path, out_dir, seeds, top_k=5):
+def run_cup_selection(config_path, out_dir, seeds, top_k=5, n_jobs=-1):
     return run_two_phase_selection(
         config_path=config_path,
         build_model_fn=build_model,
@@ -59,4 +59,5 @@ def run_cup_selection(config_path, out_dir, seeds, top_k=5):
         coarse_objective="val_loss",
         fine_objective="val_loss",
         verbose=1,
+        n_jobs=n_jobs
     )

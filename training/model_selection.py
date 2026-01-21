@@ -41,6 +41,7 @@ def run_two_phase_selection(
     fine_objective_mode="auto",
     fine_mode="kfold",
     verbose=1,
+    n_jobs=-1,  # <--- 2. PASSA IL PARAMETRO QUI
 ):
     """Two-phase model selection: coarse (holdout) over full grid, then fine (kfold) over top-K."""
     os.makedirs(out_dir, exist_ok=True)
@@ -56,6 +57,7 @@ def run_two_phase_selection(
         objective=coarse_objective,
         objective_mode=coarse_objective_mode,
         verbose=verbose,
+        n_jobs=n_jobs
     )
     coarse_summary = coarse_out["summary"]
     _write_csv(os.path.join(out_dir, "coarse_summary.csv"), coarse_summary)
@@ -106,6 +108,7 @@ def run_two_phase_selection(
         objective=fine_objective,
         objective_mode=fine_objective_mode,
         verbose=verbose,
+        n_jobs=n_jobs
     )
 
     fine_summary = fine_out["summary"]
