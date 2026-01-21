@@ -1,0 +1,45 @@
+{
+  "callbacks": {
+    "early_stopping": true,
+    "min_delta": 0.0,
+    "mode": "auto",
+    "monitor": "val_loss",
+    "patience": 40,
+    "restore_best_weights": true,
+    "verbose": 0
+  },
+  "cv": {
+    "k": 5,
+    "seed": 42,
+    "shuffle": true
+  },
+  "data": {
+    "train_path": "data/MONK/MONK2/monks-2.train"
+  },
+  "model": {
+    "activation": "relu",
+    "dropout": 0.0,
+    "hidden_units": [
+      12
+    ]
+  },
+  "optim": {
+    "lr": 0.04,
+    "momentum": 0.0,
+    "name": "adam"
+  },
+  "regularizer": {
+    "l2": 0.0
+  },
+  "seed": 42,
+  "split": {
+    "stratified": true,
+    "val_size": 0.2
+  },
+  "training": {
+    "batch_size": 16,
+    "epochs": 1000,
+    "include_reg_in_val": false,
+    "shuffle": true
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "base": {
+    "callbacks": {
+      "early_stopping": true,
+      "min_delta": 0.0,
+      "mode": "auto",
+      "monitor": "val_loss",
+      "patience": 40,
+      "restore_best_weights": true,
+      "verbose": 0
+    },
+    "cv": {
+      "k": 5,
+      "seed": 42,
+      "shuffle": true
+    },
+    "data": {
+      "train_path": "data/MONK/MONK2/monks-2.train"
+    },
+    "model": {
+      "activation": "tanh",
+      "dropout": 0.0,
+      "hidden_units": [
+        8
+      ]
+    },
+    "optim": {
+      "lr": 0.1,
+      "momentum": 0.0,
+      "name": "sgd"
+    },
+    "regularizer": {
+      "l2": 0.0
+    },
+    "seed": 42,
+    "split": {
+      "stratified": true,
+      "val_size": 0.2
+    },
+    "training": {
+      "batch_size": 16,
+      "epochs": 1000,
+      "include_reg_in_val": false,
+      "shuffle": true
+    }
+  },
+  "grid": {
+    "model.activation": [
+      "tanh",
+      "relu",
+      "sigmoid"
+    ],
+    "model.dropout": [
+      0.0
+    ],
+    "model.hidden_units": [
+      [
+        4
+      ],
+      [
+        8
+      ],
+      [
+        12
+      ],
+      [
+        4,
+        4
+      ],
+      [
+        8,
+        4
+      ],
+      [
+        12,
+        8,
+        4
+      ]
+    ],
+    "optim.lr": [
+      0.01,
+      0.04,
+      0.07,
+      0.1
+    ],
+    "optim.momentum": [
+      0.0,
+      0.3,
+      0.6,
+      0.9
+    ],
+    "optim.name": [
+      "sgd",
+      "adam"
+    ],
+    "regularizer.l2": [
+      0.0
+    ],
+    "training.batch_size": [
+      16,
+      32
+    ],
+    "training.epochs": [
+      800,
+      1000
+    ]
+  }
+}

@@ -1,0 +1,106 @@
+# experiments/MONK/configs/monkX.yaml
+
+selection:
+  top_k: 10
+  refine:
+    steps: 4
+    sig_digits: 1
+    rules:
+      optim.lr: {clip: [1e-4, 1.0]}
+      regularizer.l2: {clip: [0.0, 1e-2]}
+      model.dropout: {clip: [0.0, 0.8]}
+      optim.momentum: {clip: [0.0, 0.99]}
+
+base:
+  seed: 42
+
+  data:
+    # Change per dataset:
+    # MONK-1: data/MONK/MONK1/monks-1.train
+    # MONK-2: data/MONK/MONK2/monks-2.train
+    # MONK-3: data/MONK/MONK3/monks-3.train
+    train_path: "data/MONK/MONK2/monks-2.train"
+
+  split:
+    val_size: 0.2
+    stratified: true
+
+  cv:
+    k: 5
+    shuffle: true
+    seed: 42
+
+  model:
+    hidden_units: [8]
+    activation: "tanh"
+    dropout: 0.0
+
+  optim:
+    name: "sgd"
+    lr: 0.1
+    momentum: 0.0
+
+  regularizer:
+    l2: 0.0
+
+  callbacks:
+    early_stopping: true
+    monitor: "val_loss"
+    patience: 40
+    min_delta: 0.0
+    mode: "auto"
+    restore_best_weights: true
+    verbose: 0
+
+  training:
+    epochs: 1000
+    batch_size: 16
+    shuffle: true
+    include_reg_in_val: false
+
+grid:
+  # ----------------------------
+  # 1) Architectures
+  # ----------------------------
+  model.hidden_units:
+    # 1 hidden layer
+    - [4]
+    - [8]
+    - [12]
+
+    # 2 hidden layers (often best for MONK-1/2)
+    - [4, 4]
+    - [8, 4]
+    # - [12, 4]
+
+    # 3 hidden layers (small only)
+    - [12, 8, 4]
+
+  # ----------------------------
+  # 2) Activation
+  # ----------------------------
+  model.activation: ["tanh", "relu", "sigmoid"]
+
+  # ----------------------------
+  # 3) Regularization
+  # ----------------------------
+  model.dropout: [0.0, 0.1, 0.2]
+  regularizer.l2: [0.0, 1e-6, 1e-4, 1e-2]
+
+  # ----------------------------
+  # 4) Optimizer
+  # ----------------------------
+  optim.name: ["sgd", "adam"]
+
+  # Learning rate: covers both.
+  # (SGD tends to like bigger lr; Adam often likes smaller lr)
+  optim.lr: [0.3, 0.2, 0.1, 0.05, 0.01, 0.001]
+
+  # Momentum matters only for SGD. For Adam it will be ignored by your factory.
+  optim.momentum: [0.0, 0.5, 0.9]
+
+  # ----------------------------
+  # 5) Training hyperparams
+  # ----------------------------
+  training.batch_size: [16, 32]
+  training.epochs: [800, 1000]
