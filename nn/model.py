@@ -80,47 +80,80 @@ class Model:
 
     def get_state(self):
         """
-        Snapshot all model parameters (deep copy).
-
+        Snapshot all model parameters AND optimizer state (deep copy).
+        
         Returns
         -------
-        list[np.ndarray]
-            Copies of all parameter arrays in a stable order.
-
-        Notes
-        -----
-        We return a list (not a dict) to keep it simple and fast.
-        The ordering matches Model.parameters().
+        dict
+            {
+                'params': list of parameter arrays,
+                'optimizer': dict with optimizer state (or None)
+            }
         """
-        return [p.copy() for p in self.parameters()]
+        param_state = [p.copy() for p in self.parameters()]
+        
+        # Snapshot optimizer state
+        opt_state = None
+        if self.optimizer is not None:
+            opt_state = {}
+            
+            # SGDMomentum
+            if hasattr(self.optimizer, 'velocities'):
+                opt_state['velocities'] = {
+                    k: v.copy() for k, v in self.optimizer.velocities.items()
+                }
+            
+            # Adam
+            if hasattr(self.optimizer, 'm'):
+                opt_state['m'] = {k: v.copy() for k, v in self.optimizer.m.items()}
+                opt_state['v'] = {k: v.copy() for k, v in self.optimizer.v.items()}
+                opt_state['t'] = self.optimizer.t
+        
+        return {'params': param_state, 'optimizer': opt_state}
 
     def set_state(self, state):
         """
-        Restore model parameters from a snapshot.
-
+        Restore model parameters AND optimizer state from snapshot.
+        
         Parameters
         ----------
-        state : list[np.ndarray]
+        state : dict
             State returned by get_state().
-
-        Notes
-        -----
-        Restore is done IN-PLACE (p[...] = saved) to preserve array identity.
-        This is important for optimizers like Momentum/Adam that track state by id(p).
         """
+        # Backward compatibility: se state è una lista (vecchia versione)
+        if isinstance(state, list):
+            param_state = state
+            opt_state = None
+        else:
+            param_state = state['params']
+            opt_state = state.get('optimizer')
+        
+        # Restore parameters IN-PLACE
         params = list(self.parameters())
-
-        if len(state) != len(params):
+        if len(param_state) != len(params):
             raise ValueError(
-                f"set_state: state length {len(state)} does not match number of params {len(params)}"
+                f"set_state: state length {len(param_state)} != params {len(params)}"
             )
-
-        for p, saved in zip(params, state):
+        
+        for p, saved in zip(params, param_state):
             if p.shape != saved.shape:
                 raise ValueError(
                     f"set_state: shape mismatch, param {p.shape} vs saved {saved.shape}"
                 )
             p[...] = saved
+        
+        # Restore optimizer state
+        if opt_state and self.optimizer is not None:
+            if 'velocities' in opt_state:
+                self.optimizer.velocities = {
+                    k: v.copy() for k, v in opt_state['velocities'].items()
+                }
+            
+            if 'm' in opt_state:
+                self.optimizer.m = {k: v.copy() for k, v in opt_state['m'].items()}
+                self.optimizer.v = {k: v.copy() for k, v in opt_state['v'].items()}
+                self.optimizer.t = opt_state['t']
+
 
     # ---------------------------------------------------------------------
 
