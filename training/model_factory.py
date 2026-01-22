@@ -4,7 +4,7 @@ from nn.layers import Dense
 from nn.dropout import Dropout
 from nn.activations import Tanh, Sigmoid, ReLU, Identity, Softmax
 from nn.losses import BinaryCrossEntropy, CrossEntropy, MSE
-from nn.metrics import Accuracy, MSE as MSEMetric
+from nn.metrics import Accuracy, MSE as MSEMetric, MEE
 from nn.optim import SGD, SGDMomentum, Adam
 from nn.callbacks import EarlyStopping
 
@@ -64,7 +64,7 @@ def build_model_from_cfg(run_cfg, seed, in_dim, out_dim, task="binary"):
         modules.append(Dense(prev, int(out_dim), seed=seed))
         modules.append(Identity())
         loss = MSE()
-        metrics = [MSEMetric()]
+        metrics = [MEE()]
     else:
         raise ValueError(f"Unknown task: {task!r}")
 
