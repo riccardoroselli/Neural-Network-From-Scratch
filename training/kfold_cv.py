@@ -37,29 +37,32 @@ def kfold_cross_validation(
     if y.ndim > 1 and y.shape[1] > 1:
         is_regression = True
 
-    # --- SELEZIONE SPLITTER ---
     if is_regression:
-        if verbose >= 1: 
-            print(f"Task: Regression/Multi-output detected (y shape: {y.shape}) -> Using Standard KFold")
-        # KFold accetta y multi-dimensionale senza problemi
         cv = KFold(n_splits=k, shuffle=shuffle, random_state=seed)
-        y_split = y 
+        y_split = y
     else:
-        if verbose >= 1:
-            print(f"Task: Classification detected -> Using StratifiedKFold")
         cv = StratifiedKFold(n_splits=k, shuffle=shuffle, random_state=seed)
-        # Stratified richiede y 1D
         y_split = y.ravel() if y.ndim > 1 else y
+
+    if verbose >= 1:
+        norm_flags = []
+        if normalize_data:
+            norm_flags.append("X normalized")
+        if normalize_target:
+            norm_flags.append("y normalized")
+        norm_str = f" ({', '.join(norm_flags)})" if norm_flags else ""
+        print(f"\n{'='*60}")
+        print(f"{k}-Fold Cross Validation{norm_str}")
+        print(f"{'='*60}")
 
     fold_results = []
     histories = []
 
-    print(f"\nStarting {k}-Fold Cross Validation")
 
     # Ciclo sui Fold
     for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X, y_split)):
         if verbose >= 1:
-            print(f"Fold {fold_idx + 1}/{k}")
+            print(f"Fold {fold_idx + 1}/{k} ", end="", flush=True)
 
         # Slice dei dati grezzi
         X_train, X_val = X[train_idx], X[val_idx]

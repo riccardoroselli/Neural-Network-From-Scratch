@@ -45,8 +45,10 @@ class Identity(Module):
 
 class Softmax(Module):
     """
-    Softmax activation (use with CrossEntropy loss).
-    The combined gradient is handled by the loss function.
+    IMPORTANT: This implementation assumes the gradient is already the combined Softmax+CrossEntropy
+    gradient computed by the loss function. 
+    The backward pass is a simple pass-through: dL/dz = (p - y) / N. DO NOT use this Softmax with 
+    other losses or in standalone fashion. For correct behavior, always pair with CrossEntropy loss. 
     """
     
     def forward(self, X, training=True):

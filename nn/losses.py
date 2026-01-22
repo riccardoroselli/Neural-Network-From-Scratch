@@ -81,12 +81,12 @@ class MEE(Loss):
 
 class BinaryCrossEntropy(Loss):
     """
-    Binary Cross Entropy (batch-mean, sum over output dims).
-    Use with Sigmoid output probabilities.
+    The gradient (p - y) / (p*(1-p)) appears numerically unstable,
+    but when used with Sigmoid activation, the terms p*(1-p) cancel out
+    perfectly, yielding the stable gradient (p - y) / N.
+    The clipping to [eps, 1-eps] provides additional numerical safety.
 
-    Convention used:
-        loss = (1/N) * sum_i sum_j [ - y*log(p) - (1-y)*log(1-p) ]
-        dloss/dp = (1/N) * (p - y) / (p*(1-p))
+    USE WITH SIGMOID
     """
 
     def __init__(self, eps=1e-12):
@@ -124,7 +124,7 @@ class BinaryCrossEntropy(Loss):
 class CrossEntropy(Loss):
     """
     Categorical Cross-Entropy (batch-mean).
-    Use with Softmax activation.
+    USE WITH SOFTMAX.
 
     loss = (1/N) * sum_i [ - sum_c y_true[i,c] * log(y_pred[i,c]) ]
     backward returns the standard combined Softmax+CE gradient:

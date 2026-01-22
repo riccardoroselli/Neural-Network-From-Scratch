@@ -1,0 +1,1 @@
+config_id,seed,mode,objective,objective_mode,score_mean,score_std,val_loss_mean,val_loss_std,val_acc_mean,val_acc_std,best_epoch_mean,best_epoch_std,train_time_sec,config_json

@@ -137,49 +137,46 @@ class Trainer:
 
     def _run_epoch_train(self, X, y, batch_size, shuffle, drop_last, seed):
         model = self.model
-        callbacks = getattr(model, "callbacks", []) or []
         metrics = model.metrics or []
-
-        iterator = BatchIterator(
-            X, y,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            drop_last=drop_last,
-            seed=seed
-        )
-
+        
+        iterator = BatchIterator(X, y, batch_size=batch_size, 
+                                shuffle=shuffle, drop_last=drop_last, seed=seed)
+        
         n_total = 0
         loss_sum = 0.0
         metric_sums = {m.__class__.__name__: 0.0 for m in metrics}
-
-        for batch_idx, (Xb, yb) in enumerate(iterator):
-            for cb in callbacks:
-                if hasattr(cb, "on_batch_begin"):
-                    cb.on_batch_begin(batch_idx, logs=None)
-
-            y_pred = model.forward(Xb, training=True)
-            loss = float(model.compute_loss(y_true=yb, y_pred=y_pred))
-
-            dY = model.loss.backward(y_pred, yb)
+        
+        # === BATCH LOOP (PULITO) ===
+        for X_b, y_b in iterator:  # Rimuovi enumerate(iterator)
+            # 1. Forward
+            y_pred = model.forward(X_b, training=True)
+            
+            # 2. Loss
+            loss = float(model.compute_loss(y_true=y_b, y_pred=y_pred))
+            
+            # 3. Backward
+            dY = model.loss.backward(y_pred, y_b)
             model.backward(dY)
+            
+            # 4. Step
             model.step()
-
-            bs = len(Xb)
+            
+            # 5. Accumulate
+            bs = len(X_b)
             n_total += bs
             loss_sum += loss * bs
-
+            
             for m in metrics:
                 name = m.__class__.__name__
-                metric_sums[name] += float(m(y_pred, yb)) * bs
-
-            for cb in callbacks:
-                if hasattr(cb, "on_batch_end"):
-                    cb.on_batch_end(batch_idx, logs={"loss": loss})
-
-        out = {"loss": loss_sum / max(n_total, 1)}
+                metric_sums[name] += float(m(y_pred, y_b)) * bs
+        
+        # === COMPUTE AVERAGES ===
+        out = {'loss': loss_sum / max(n_total, 1)}
         for name, s in metric_sums.items():
             out[name] = s / max(n_total, 1)
+        
         return out
+
 
     def _print_banner(self):
         """Print ASCII art banner"""
@@ -201,5 +198,5 @@ class Trainer:
         bar = '=' * filled_length + '>' + '.' * (bar_length - filled_length - 1)
         metrics_str = ' '.join([f'{k}: {v:.4f}' for k, v in logs.items()])
 
-        sys.stdout.write(f'Epoch {current_epoch}/{total_epochs} [{bar}] {metrics_str}')
+        sys.stdout.write(f'\nEpoch {current_epoch}/{total_epochs} [{bar}] {metrics_str}')
         sys.stdout.flush()

@@ -35,12 +35,6 @@ class Callback:
     def on_epoch_end(self, epoch, logs=None):
         return False
 
-    def on_batch_begin(self, batch, logs=None):
-        return False
-
-    def on_batch_end(self, batch, logs=None):
-        return False
-
 
 class EarlyStopping(Callback):
     """

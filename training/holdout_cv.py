@@ -26,8 +26,6 @@ def holdout_validation(
     
     # Gestione stratificazione
     stratify_param = y if stratified else None
-    if stratified and not shuffle:
-        shuffle = True
 
     # 1. SPLIT
     X_train, X_val, y_train, y_val = train_test_split(
@@ -39,31 +37,27 @@ def holdout_validation(
         stratify=stratify_param
     )
 
-    # 2. NORMALIZZAZIONE INPUT (X)
     if normalize_data:
-        # Fit su Train
         X_train, mean_x, std_x = normalize(X_train)
-        # Transform su Val (usando statistiche train)
         X_val, _, _ = normalize(X_val, mean=mean_x, std=std_x)
-        
-        if verbose >= 1:
-            print(f"[Holdout] X Normalized. Train Mean[0]={mean_x[0]:.3f}")
 
-    # 3. NORMALIZZAZIONE TARGET (y)
     if normalize_target:
-        # Fit su Train
         y_train, mean_y, std_y = normalize(y_train)
-        # Transform su Val
-        # È necessario scalare anche y_val perché il modello predirà valori scalati,
-        # quindi la loss deve essere calcolata confrontando mele con mele.
         y_val, _, _ = normalize(y_val, mean=mean_y, std=std_y)
-        
-        if verbose >= 1:
-            print(f"[Holdout] y Normalized. Train Mean[0]={mean_y[0]:.3f}")
 
     if verbose >= 1:
-        print(f"\nStarting Holdout Validation")
-        print(f"Train samples: {len(X_train)}, Val samples: {len(X_val)}")
+        norm_flags = []
+        if normalize_data:
+            norm_flags.append("X normalized")
+        if normalize_target:
+            norm_flags.append("y normalized")
+        norm_str = f" ({', '.join(norm_flags)})" if norm_flags else ""
+        print(f"\n{'─'*60}")
+        print(f"Holdout Validation{norm_str}")
+        print(f"{'─'*60}")
+        print(f"  Train: {len(X_train)} samples | Val: {len(X_val)} samples")
+        print(f"{'─'*60}")
+
 
     # Reset pesi modello
     model.reset()
