@@ -2,63 +2,134 @@
 import numpy as np
 from .core import Module
 
+
 class ReLU(Module):
+    """
+    Rectified Linear Unit activation.
+    
+    Formula:
+        f(x) = max(0, x)
+        f'(x) = 1 if x > 0, else 0
+    """
+    
     def __init__(self):
         self.mask = None
     
     def forward(self, X, training=True):
+        """Apply ReLU activation"""
         self.mask = (X > 0)
         return X * self.mask
     
     def backward(self, dA):
+        """Gradient: zero out negative inputs"""
         return dA * self.mask
 
+
 class Sigmoid(Module):
+    """
+    Sigmoid activation.
+    
+    Formula:
+        f(x) = 1 / (1 + exp(-x))
+        f'(x) = f(x) * (1 - f(x))
+    
+    Use with BinaryCrossEntropy loss for binary classification.
+    """
+    
     def __init__(self):
-        self.A = None
+        self.output = None
     
     def forward(self, X, training=True):
-        X_clipped = np.clip(X, -20, 20) 
-        self.A = 1.0 / (1.0 + np.exp(-X_clipped))
-        return self.A
+        """
+        Apply sigmoid activation with numerical stability.
+        
+        Clips input to [-20, 20] to prevent overflow in exp().
+        """
+        X_clipped = np.clip(X, -20, 20)
+        self.output = 1.0 / (1.0 + np.exp(-X_clipped))
+        return self.output
     
     def backward(self, dA):
-        return dA * (self.A * (1.0 - self.A))
+        """Gradient using cached output"""
+        return dA * self.output * (1.0 - self.output)
+
 
 class Tanh(Module):
+    """
+    Hyperbolic tangent activation.
+    
+    Formula:
+        f(x) = tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
+        f'(x) = 1 - f(x)^2
+    
+    Popular for hidden layers (outputs in range [-1, 1]).
+    """
+    
     def __init__(self):
-        self.A = None 
+        self.output = None
     
     def forward(self, X, training=True):
-        self.A = np.tanh(X)
-        return self.A
+        """Apply tanh activation"""
+        self.output = np.tanh(X)
+        return self.output
     
     def backward(self, dA):
-        return dA * (1.0 - self.A ** 2)
+        """Gradient using cached output"""
+        return dA * (1.0 - self.output ** 2)
+
 
 class Identity(Module):
+    """
+    Identity activation (no transformation).
+    
+    Formula:
+        f(x) = x
+        f'(x) = 1
+    
+    Use for regression tasks as output activation.
+    """
+    
     def forward(self, X, training=True):
+        """Return input unchanged"""
         return X
     
     def backward(self, dA):
+        """Gradient is identity"""
         return dA
+
 
 class Softmax(Module):
     """
-    IMPORTANT: This implementation assumes the gradient is already the combined Softmax+CrossEntropy
-    gradient computed by the loss function. 
-    The backward pass is a simple pass-through: dL/dz = (p - y) / N. DO NOT use this Softmax with 
-    other losses or in standalone fashion. For correct behavior, always pair with CrossEntropy loss. 
+    Softmax activation for multi-class classification.
+    
+    Formula:
+        f(x_i) = exp(x_i) / sum(exp(x_j))
+    
+    Note: Gradient is typically fused with CrossEntropy loss for
+    numerical stability. The backward() method here is a pass-through.
+    
+    Use with CrossEntropy loss.
     """
     
+    def __init__(self):
+        self.output = None
+    
     def forward(self, X, training=True):
-        # Numerical stability
+        """
+        Apply softmax with numerical stability.
+        
+        Subtracts max(X) before exp to prevent overflow.
+        """
         X_shifted = X - np.max(X, axis=1, keepdims=True)
         exp_X = np.exp(X_shifted)
-        self.A = exp_X / np.sum(exp_X, axis=1, keepdims=True)
-        return self.A
+        self.output = exp_X / np.sum(exp_X, axis=1, keepdims=True)
+        return self.output
     
     def backward(self, dA):
-        # If used with CrossEntropy, the gradient is already simplified
-        # and passed directly from the loss
+        """
+        Pass-through gradient.
+        
+        The actual Softmax gradient is computed by CrossEntropy loss
+        for numerical stability (combined Softmax+CE derivative).
+        """
         return dA

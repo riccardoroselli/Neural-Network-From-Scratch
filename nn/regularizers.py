@@ -1,6 +1,5 @@
 # nn/regularizers.py
 import numpy as np
-from .core import Module
 from .layers import Dense
 
 
@@ -28,13 +27,17 @@ class Regularizer:
         """
         pass
 
+    def _get_dense_layers(self, modules):
+        """Helper to extract Dense layers from modules list"""
+        return [m for m in modules if isinstance(m, Dense)]
+
 
 class L2(Regularizer):
     """
     L2 regularization (weight decay) on Dense layer weights.
     
-    Penalty: 0.5 * lam * sum(||W||^2)
-    Gradient: dW += lam * W
+    Penalty: 0.5 * lambda * sum(||W||^2)
+    Gradient: dW += lambda * W
     
     Note: Applied only to weights, NOT biases.
     """
@@ -51,34 +54,36 @@ class L2(Regularizer):
         if self.lam == 0.0:
             return 0.0
         
-        penalty = 0.0
-        for m in modules:
-            if isinstance(m, Dense):
-                penalty += np.sum(m.W * m.W)
+        total_penalty = 0.0
+        for layer in self._get_dense_layers(modules):
+            total_penalty += np.sum(layer.W ** 2)
         
-        return 0.5 * self.lam * penalty
+        return 0.5 * self.lam * total_penalty
     
     def add_gradients(self, modules):
-        """Add L2 gradient (lam * W) to weight gradients"""
+        """Add L2 gradient (lambda * W) to weight gradients"""
         if self.lam == 0.0:
             return
         
-        for m in modules:
-            if isinstance(m, Dense):
-                m.dW += self.lam * m.W
+        for layer in self._get_dense_layers(modules):
+            layer.dW += self.lam * layer.W
 
 
 class L1(Regularizer):
     """
     L1 regularization (Lasso) on Dense layer weights.
     
-    Penalty: lam * sum(|W|)
-    Gradient: dW += lam * sign(W)
+    Penalty: lambda * sum(|W|)
+    Gradient: dW += lambda * sign(W)
     
     Promotes sparsity (many weights become exactly zero).
     """
     
     def __init__(self, lam=0.0):
+        """
+        Args:
+            lam: regularization strength (lambda)
+        """
         self.lam = lam
     
     def penalty(self, modules):
@@ -86,18 +91,16 @@ class L1(Regularizer):
         if self.lam == 0.0:
             return 0.0
         
-        penalty = 0.0
-        for m in modules:
-            if isinstance(m, Dense):
-                penalty += np.sum(np.abs(m.W))
+        total_penalty = 0.0
+        for layer in self._get_dense_layers(modules):
+            total_penalty += np.sum(np.abs(layer.W))
         
-        return self.lam * penalty
+        return self.lam * total_penalty
     
     def add_gradients(self, modules):
-        """Add L1 gradient (lam * sign(W)) to weight gradients"""
+        """Add L1 gradient (lambda * sign(W)) to weight gradients"""
         if self.lam == 0.0:
             return
         
-        for m in modules:
-            if isinstance(m, Dense):
-                m.dW += self.lam * np.sign(m.W)
+        for layer in self._get_dense_layers(modules):
+            layer.dW += self.lam * np.sign(layer.W)

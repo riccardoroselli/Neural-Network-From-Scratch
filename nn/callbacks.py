@@ -4,59 +4,81 @@ import numpy as np
 
 class Callback:
     """
-    Base Callback (no-ops by default).
-
-    This file is designed to work with the API:
-        Model(..., callbacks=[...])
-
-    You can integrate it later either in:
-    - Model.fit(...)
-    - a separate trainer.py
-    - or a manual training loop
-
-    The contract is:
-    - callbacks get a reference to the model via set_model(model)
-    - callbacks can receive logs dicts (e.g., {"loss": ..., "val_loss": ...})
-    - any callback hook may return True to request stopping training
+    Base callback class with no-op hooks.
+    
+    Callbacks receive references to the model and logs during training.
+    Any hook can return True to request training to stop.
+    
+    Integration points:
+        - Model.fit(...)
+        - Trainer.fit(...)
+        - Custom training loops
+    
+    Callback lifecycle:
+        1. set_model(model) - called once at setup
+        2. on_train_begin(logs) - called at training start
+        3. For each epoch:
+            - on_epoch_begin(epoch, logs)
+            - For each batch:
+                - on_batch_begin(batch, logs)
+                - on_batch_end(batch, logs)
+            - on_epoch_end(epoch, logs)
+        4. on_train_end(logs) - called at training end
     """
 
     def set_model(self, model):
+        """Store reference to the model being trained"""
         self.model = model
 
     def on_train_begin(self, logs=None):
+        """Called at the start of training"""
         return False
 
     def on_train_end(self, logs=None):
+        """Called at the end of training"""
         return False
 
     def on_epoch_begin(self, epoch, logs=None):
+        """Called at the start of each epoch"""
         return False
 
     def on_epoch_end(self, epoch, logs=None):
+        """Called at the end of each epoch"""
+        return False
+
+    def on_batch_begin(self, batch, logs=None):
+        """Called at the start of each batch"""
+        return False
+
+    def on_batch_end(self, batch, logs=None):
+        """Called at the end of each batch"""
         return False
 
 
 class EarlyStopping(Callback):
     """
-    EarlyStopping callback.
-
-    Parameters
-    ----------
-    monitor : str
-        Key in logs to monitor. Common: "val_loss", "loss", "val_accuracy".
-    patience : int
-        Stop after this many epochs with no improvement.
-    min_delta : float
-        Minimum change to count as an improvement.
-    mode : str
-        "min", "max", or "auto".
-        - "min": lower is better (loss)
-        - "max": higher is better (accuracy)
-        - "auto": infer from monitor name ("acc"/"accuracy" -> "max", else "min")
-    restore_best_weights : bool
-        If True, restore model parameters from the best epoch when stopping.
-    verbose : int
-        0 = silent, 1 = prints improvements / stopping info.
+    Early stopping callback to halt training when metric stops improving.
+    
+    Monitors a metric (e.g., validation loss) and stops training after
+    a specified number of epochs with no improvement. Optionally restores
+    model weights from the best epoch.
+    
+    Args:
+        monitor: metric name to track (e.g., 'val_loss', 'val_Accuracy')
+        patience: number of epochs with no improvement before stopping
+        min_delta: minimum change to qualify as improvement
+        mode: 'min', 'max', or 'auto'
+            - 'min': lower is better (for loss)
+            - 'max': higher is better (for accuracy)
+            - 'auto': infer from monitor name
+        restore_best_weights: if True, restore model to best epoch when stopping
+        verbose: 0 = silent, 1 = print improvements and stopping
+    
+    Example:
+        >>> callback = EarlyStopping(monitor='val_loss', patience=10, verbose=1)
+        >>> model = Model(..., callbacks=[callback])
+        >>> trainer.fit(X, y, X_val=X_val, y_val=y_val, epochs=100)
+        # Training stops early if val_loss doesn't improve for 10 epochs
     """
 
     def __init__(
@@ -74,138 +96,164 @@ class EarlyStopping(Callback):
         self.mode = str(mode)
         self.restore_best_weights = bool(restore_best_weights)
         self.verbose = int(verbose)
-
+        
         self.model = None
-
-        # state
-        self._best = None
-        self._best_epoch = None
-        self._wait = 0
-        self._stop = False
-        self._best_state = None
-        self._is_improvement = None  # set at train begin
+        
+        # Training state (reset at train begin)
+        self.best_value = None
+        self.best_epoch = None
+        self.wait = 0
+        self.stopped_epoch = None
+        self.best_state = None
+        self._is_improvement = None  # Function pointer set at train begin
 
     def should_stop(self):
-        return self._stop
+        """Check if training should stop"""
+        return self.stopped_epoch is not None
 
     def on_train_begin(self, logs=None):
-        self._stop = False
-        self._wait = 0
-        self._best_epoch = None
-        self._best_state = None
-
+        """Initialize state at training start"""
+        self.wait = 0
+        self.best_epoch = None
+        self.best_state = None
+        self.stopped_epoch = None
+        
+        # Determine comparison mode
         mode = self.mode
         if mode == "auto":
-            name = self.monitor.lower()
-            mode = "max" if ("acc" in name or "accuracy" in name) else "min"
-
+            metric_name = self.monitor.lower()
+            mode = "max" if ("acc" in metric_name or "accuracy" in metric_name) else "min"
+        
         if mode not in ("min", "max"):
             raise ValueError(
-                f"EarlyStopping: mode must be 'min', 'max', or 'auto', got {self.mode!r}"
+                f"EarlyStopping mode must be 'min', 'max', or 'auto', got {self.mode!r}"
             )
-
+        
+        # Set initial best value and comparison function
         if mode == "min":
-            self._best = np.inf
+            self.best_value = np.inf
             self._is_improvement = self._is_improvement_min
         else:
-            self._best = -np.inf
+            self.best_value = -np.inf
             self._is_improvement = self._is_improvement_max
-
+        
         return False
 
     def on_epoch_end(self, epoch, logs=None):
+        """Check for improvement and potentially stop training"""
         logs = logs or {}
-
-        # If the metric isn't present, do nothing (allows flexible loops)
+        
+        # Skip if metric not available
         if self.monitor not in logs:
             return False
-
-        current = float(logs[self.monitor])
-
-        if self._is_improvement(current, self._best):
-            self._best = current
-            self._best_epoch = int(epoch)
-            self._wait = 0
-
+        
+        current_value = float(logs[self.monitor])
+        
+        # Check for improvement
+        if self._is_improvement(current_value, self.best_value):
+            self.best_value = current_value
+            self.best_epoch = int(epoch)
+            self.wait = 0
+            
+            # Save best state if requested
             if self.restore_best_weights:
-                self._best_state = self._snapshot_state()
-
-            if self.verbose:
-                print(f"[EarlyStopping] epoch={epoch} improved {self.monitor} -> {current:.6g}")
-
-            return False
-
-        self._wait += 1
-        if self._wait > self.patience:
-            self._stop = True
-
+                self.best_state = self._snapshot_state()
+            
             if self.verbose:
                 print(
-                    f"[EarlyStopping] stopping at epoch={epoch} "
-                    f"(best epoch={self._best_epoch}, best {self.monitor}={self._best:.6g})"
+                    f"[EarlyStopping] Epoch {epoch}: {self.monitor} improved to {current_value:.6g}"
                 )
-
-            if self.restore_best_weights and self._best_state is not None:
-                self._restore_state(self._best_state)
+            
+            return False
+        
+        # No improvement - increment wait counter
+        self.wait += 1
+        
+        # Check if patience exhausted
+        if self.wait >= self.patience:
+            self.stopped_epoch = epoch
+            
+            if self.verbose:
+                print(
+                    f"[EarlyStopping] Stopping at epoch {epoch} "
+                    f"(best epoch={self.best_epoch}, best {self.monitor}={self.best_value:.6g})"
+                )
+            
+            # Restore best weights if requested
+            if self.restore_best_weights and self.best_state is not None:
+                self._restore_state(self.best_state)
                 if self.verbose:
-                    print("[EarlyStopping] restored best weights")
-
-            return True
-
+                    print("[EarlyStopping] Restored weights from best epoch")
+            
+            return True  # Signal to stop training
+        
         return False
 
-    # ----------------- improvement rules -----------------
+    # ==================== Improvement Checks ====================
 
     def _is_improvement_min(self, current, best):
+        """Check improvement for metrics where lower is better"""
         return current < (best - self.min_delta)
 
     def _is_improvement_max(self, current, best):
+        """Check improvement for metrics where higher is better"""
         return current > (best + self.min_delta)
 
-    # ----------------- state snapshot / restore -----------------
+    # ==================== State Management ====================
 
     def _snapshot_state(self):
         """
-        Snapshot model state.
-
-        Prefer Model.get_state() if available (cleaner, more robust).
-        Fallback: snapshot via params_and_grads iteration.
+        Save current model state.
+        
+        Prefers Model.get_state() if available (includes optimizer state).
+        Falls back to copying parameters directly for older implementations.
         """
         if self.model is None:
-            raise RuntimeError("EarlyStopping: model is not set. Did you call cb.set_model(model)?")
-
+            raise RuntimeError(
+                "EarlyStopping: model not set. Call set_model(model) first."
+            )
+        
+        # Preferred: use Model.get_state() (includes optimizer state)
         if hasattr(self.model, "get_state") and callable(self.model.get_state):
             return self.model.get_state()
-
-        # fallback (older approach)
-        return [p.copy() for p in self._iter_params_fallback()]
+        
+        # Fallback: copy parameters only (for backward compatibility)
+        return [param.copy() for param in self._iter_params_fallback()]
 
     def _restore_state(self, state):
         """
-        Restore model state.
-
-        Prefer Model.set_state() if available.
-        Fallback: restore via params iteration (in-place).
+        Restore model to saved state.
+        
+        Prefers Model.set_state() if available (restores optimizer too).
+        Falls back to in-place parameter restoration for older implementations.
         """
         if self.model is None:
-            raise RuntimeError("EarlyStopping: model is not set. Did you call cb.set_model(model)?")
-
+            raise RuntimeError(
+                "EarlyStopping: model not set. Call set_model(model) first."
+            )
+        
+        # Preferred: use Model.set_state() (restores optimizer too)
         if hasattr(self.model, "set_state") and callable(self.model.set_state):
             self.model.set_state(state)
             return
-
-        for p, saved in zip(self._iter_params_fallback(), state):
-            p[...] = saved
+        
+        # Fallback: restore parameters in-place
+        for param, saved_param in zip(self._iter_params_fallback(), state):
+            param[...] = saved_param
 
     def _iter_params_fallback(self):
         """
-        Iterate parameter arrays in a stable order using params_and_grads().
+        Iterate over model parameters (fallback for older implementations).
+        
+        Used when Model.get_state() / set_state() are not available.
         """
         modules = getattr(self.model, "modules", None)
         if modules is None:
-            raise RuntimeError("EarlyStopping: model has no attribute 'modules'.")
-
-        for m in modules:
-            if hasattr(m, "params_and_grads"):
-                for p, _ in m.params_and_grads():
-                    yield p
+            raise RuntimeError(
+                "EarlyStopping: model has no 'modules' attribute."
+            )
+        
+        for module in modules:
+            if hasattr(module, "params_and_grads"):
+                for param, _ in module.params_and_grads():
+                    yield param

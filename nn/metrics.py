@@ -3,21 +3,18 @@ import numpy as np
 
 
 class Metric:
-    """
-    Base class for all evaluation metrics.
-
-    """
+    """Base class for all evaluation metrics."""
 
     def compute(self, y_pred, y_true):
         """
         Compute the metric value.
-
+        
         Args:
-            y_pred: predicted values from the model.
-            y_true: ground truth values.
+            y_pred: predicted values from the model
+            y_true: ground truth values
         
         Returns:
-            scalar metric value.
+            scalar metric value
         """
         raise NotImplementedError
 
@@ -28,105 +25,122 @@ class Metric:
         return self.__class__.__name__
 
 
-class Accuracy(Metric):
-    """
-    Accuracy metric for classification tasks.
+# ==================== Classification Metrics ====================
 
-    """
+class Accuracy(Metric):
+    """Accuracy metric for classification tasks."""
 
     def compute(self, y_pred, y_true):
-        """
-        Determine accuracy by comparing predicted classes with targets.
-        
-        """
-        # For binary classification (MONK), apply 0.5 threshold
+        # Binary classification: threshold at 0.5
         if y_pred.shape[-1] == 1:
             preds = (y_pred >= 0.5).astype(int)
             targets = y_true.astype(int)
-        # For multi-class classification (Softmax), use the index of the max value
+        # Multi-class: argmax over classes
         else:
             preds = np.argmax(y_pred, axis=1)
             targets = np.argmax(y_true, axis=1)
-            
+        
         return float(np.mean(preds == targets))
 
 
-class MEE(Metric):
-    """
-    Mean Euclidean Error (MEE).
-
-    """
-
-    def compute(self, y_pred, y_true):
-        """
-        Formula: (1/l) * sum(||y_pred_p - y_true_p||_2)
-        """
-        y_pred = np.atleast_2d(y_pred)
-        y_true = np.atleast_2d(y_true)
-        
-        # Calculate Euclidean distance for each pattern along the feature axis
-        dist = np.linalg.norm(y_pred - y_true, axis=1)
-        return float(np.mean(dist))
-
-
-class MSE(Metric):
-    """
-    Mean Squared Error (MSE).
-
-    """
-
-    def compute(self, y_pred, y_true):
-        y_pred = np.atleast_2d(y_pred)
-        y_true = np.atleast_2d(y_true)
-        # Average sum of squared errors per sample
-        return float(np.mean(np.sum((y_pred - y_true) ** 2, axis=1)))
-
-
 class Precision(Metric):
-    """
-    Precision metric for binary classification.
+    """Precision metric for binary classification."""
 
-    """
+    def __init__(self, threshold=0.5):
+        self.threshold = threshold
 
     def compute(self, y_pred, y_true):
-        preds = (y_pred >= 0.5).astype(int)
+        preds = (y_pred >= self.threshold).astype(int)
+        
         true_positives = np.sum((preds == 1) & (y_true == 1))
         false_positives = np.sum((preds == 1) & (y_true == 0))
         
         denominator = true_positives + false_positives
         if denominator == 0:
             return 0.0
+        
         return float(true_positives / denominator)
 
 
 class Recall(Metric):
-    """
-    Recall metric for binary classification.
+    """Recall metric for binary classification."""
 
-    """
+    def __init__(self, threshold=0.5):
+        self.threshold = threshold
 
     def compute(self, y_pred, y_true):
-        preds = (y_pred >= 0.5).astype(int)
+        preds = (y_pred >= self.threshold).astype(int)
+        
         true_positives = np.sum((preds == 1) & (y_true == 1))
         false_negatives = np.sum((preds == 0) & (y_true == 1))
         
         denominator = true_positives + false_negatives
         if denominator == 0:
             return 0.0
+        
         return float(true_positives / denominator)
 
 
 class F1Score(Metric):
-    """
-    F1 Score for binary classification.
+    """F1 Score for binary classification."""
 
+    def __init__(self, threshold=0.5):
+        self.threshold = threshold
+
+    def compute(self, y_pred, y_true):
+        preds = (y_pred >= self.threshold).astype(int)
+        
+        # Calculate confusion matrix components
+        true_positives = np.sum((preds == 1) & (y_true == 1))
+        false_positives = np.sum((preds == 1) & (y_true == 0))
+        false_negatives = np.sum((preds == 0) & (y_true == 1))
+        
+        # Calculate precision
+        precision_denom = true_positives + false_positives
+        precision = true_positives / precision_denom if precision_denom > 0 else 0.0
+        
+        # Calculate recall
+        recall_denom = true_positives + false_negatives
+        recall = true_positives / recall_denom if recall_denom > 0 else 0.0
+        
+        # Calculate F1
+        f1_denom = precision + recall
+        if f1_denom == 0:
+            return 0.0
+        
+        return float(2 * (precision * recall) / f1_denom)
+
+
+# ==================== Regression Metrics ====================
+
+class MEE(Metric):
+    """
+    Mean Euclidean Error.
+    Formula: (1/N) * sum(||y_pred - y_true||_2)
     """
 
     def compute(self, y_pred, y_true):
-        precision_val = Precision().compute(y_pred, y_true)
-        recall_val = Recall().compute(y_pred, y_true)
+        y_pred = np.atleast_2d(y_pred)
+        y_true = np.atleast_2d(y_true)
         
-        denominator = precision_val + recall_val
-        if denominator == 0:
-            return 0.0
-        return float(2 * (precision_val * recall_val) / denominator)
+        diff = y_pred - y_true
+        euclidean_distances = np.linalg.norm(diff, axis=1)
+        
+        return float(np.mean(euclidean_distances))
+
+
+class MSE(Metric):
+    """
+    Mean Squared Error.
+    Formula: (1/N) * sum(||y_pred - y_true||^2)
+    """
+
+    def compute(self, y_pred, y_true):
+        y_pred = np.atleast_2d(y_pred)
+        y_true = np.atleast_2d(y_true)
+        
+        diff = y_pred - y_true
+        squared_errors = diff ** 2
+        mse_per_sample = np.sum(squared_errors, axis=1)
+        
+        return float(np.mean(mse_per_sample))
