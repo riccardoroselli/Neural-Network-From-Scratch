@@ -6,15 +6,12 @@ from training.model_factory import build_model_from_cfg
 from training.model_selection import run_two_phase_selection
 
 def load_full_data(run_cfg):
-    # RITORNA I DATI GREZZI.
-    # GridSearch -> Holdout/KFold applicheranno normalize() se richiesto dal config.
     data_cfg = run_cfg.get("data", {})
     train_path = data_cfg["train_path"]
     X, y = load_cup(train_path, training=True)
     return X, y
 
 def build_model(run_cfg, seed):
-    # CUP: 12 Input, 4 Output, Regression
     return build_model_from_cfg(
         run_cfg, 
         seed=seed, 
@@ -34,8 +31,7 @@ def create_internal_split(original_path, train_save_path, test_save_path, test_r
     test_size = int(len(data) * test_ratio)
     train_data = data[test_size:]
     test_data = data[:test_size]
-    
-    # Save with dummy ID for load_cup compatibility
+
     def save_dummy(fname, d):
         ids = np.arange(len(d)).reshape(-1, 1)
         d_out = np.hstack([ids, d])

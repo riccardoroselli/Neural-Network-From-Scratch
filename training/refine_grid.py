@@ -6,11 +6,6 @@ import numpy as np
 def round_sig(x, sig=1):
     """
     Round x to `sig` significant digits.
-    
-    Examples:
-        round_sig(0.12345, 2) -> 0.12
-        round_sig(123.45, 3) -> 123.0
-        round_sig(0.0, 1) -> 0.0
     """
     if x == 0.0:
         return 0.0
@@ -25,19 +20,6 @@ def round_sig(x, sig=1):
 def _get_by_path(config, path):
     """
     Access nested dict value using dot notation.
-    
-    Args:
-        config: nested dict
-        path: dot-separated path (e.g., 'optim.lr')
-    
-    Returns:
-        value at path
-    
-    Raises:
-        KeyError: if path not found
-    
-    Example:
-        _get_by_path({'optim': {'lr': 0.01}}, 'optim.lr') -> 0.01
     """
     current = config
     for key in path.split("."):
@@ -50,20 +32,6 @@ def _get_by_path(config, path):
 def compute_minmax_from_topk(topk_cfgs, param_path):
     """
     Extract scalar values for param_path from top-K configs and compute range.
-    
-    Args:
-        topk_cfgs: list of config dicts (best configs from coarse search)
-        param_path: dot-separated path (e.g., 'optim.lr')
-    
-    Returns:
-        tuple: (min_value, max_value)
-    
-    Raises:
-        KeyError: if param_path not found in any config
-    
-    Example:
-        configs = [{'optim': {'lr': 0.01}}, {'optim': {'lr': 0.1}}]
-        compute_minmax_from_topk(configs, 'optim.lr') -> (0.01, 0.1)
     """
     values = []
     
@@ -83,20 +51,6 @@ def compute_minmax_from_topk(topk_cfgs, param_path):
 def build_linear_values(low, high, steps=5, sig_digits=1, clip=None):
     """
     Create linearly spaced values in [low, high], rounded and optionally clipped.
-    
-    Args:
-        low: lower bound
-        high: upper bound
-        steps: number of values to generate
-        sig_digits: significant digits for rounding
-        clip: optional tuple (min_clip, max_clip) for hard bounds
-    
-    Returns:
-        list of unique sorted values
-    
-    Example:
-        build_linear_values(0.01, 0.1, steps=5, sig_digits=2)
-        -> [0.01, 0.032, 0.055, 0.078, 0.1]
     """
     steps = max(1, int(steps))
     
@@ -126,25 +80,8 @@ def build_linear_values(low, high, steps=5, sig_digits=1, clip=None):
 def refine_grid_from_topk(coarse_grid, topk_cfgs, rules, steps=5, sig_digits=1):
     """
     Build a refined fine grid from coarse grid + top-K configs.
-    
     For each parameter in `rules`, computes min/max from top-K configs,
     then generates linearly spaced values with optional clipping.
-    
-    Args:
-        coarse_grid: original grid dict (unchanged parameters kept as-is)
-        topk_cfgs: list of best config dicts from coarse search
-        rules: dict mapping param_path -> rule (None or dict with 'clip')
-        steps: number of values to generate per parameter
-        sig_digits: significant digits for rounding
-    
-    Returns:
-        tuple: (fine_grid dict, report dict with refinement details)
-    
-    Example:
-        coarse_grid = {'optim.lr': [0.001, 0.01, 0.1]}
-        topk_cfgs = [{'optim': {'lr': 0.01}}, {'optim': {'lr': 0.1}}]
-        rules = {'optim.lr': {'clip': (0.005, 0.5)}}
-        fine_grid, report = refine_grid_from_topk(coarse_grid, topk_cfgs, rules, steps=5)
     """
     fine_grid = dict(coarse_grid)
     report = {"refined": {}}
@@ -185,13 +122,6 @@ def refine_grid_from_topk(coarse_grid, topk_cfgs, rules, steps=5, sig_digits=1):
 def _apply_clip(value, clip_bounds):
     """
     Clip value to [min_bound, max_bound].
-    
-    Args:
-        value: scalar to clip
-        clip_bounds: tuple (min_bound, max_bound)
-    
-    Returns:
-        clipped value
     """
     min_bound, max_bound = clip_bounds
     return max(min_bound, min(value, max_bound))
@@ -200,12 +130,6 @@ def _apply_clip(value, clip_bounds):
 def _parse_clip_from_rule(rule):
     """
     Extract clip bounds from rule dict.
-    
-    Args:
-        rule: None or dict with optional 'clip' key
-    
-    Returns:
-        tuple (min_clip, max_clip) or None
     """
     if not isinstance(rule, dict):
         return None
