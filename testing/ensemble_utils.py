@@ -3,17 +3,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ------------------------------------------------------------
-# Basic stats
-# ------------------------------------------------------------
+
+# ----------------------------- Basic stats -----------------------------
 def mean_std(vals):
     vals = np.asarray(vals, dtype=float)
     return float(np.nanmean(vals)), float(np.nanstd(vals))
 
 
-# ------------------------------------------------------------
-# Histories stacking (NaN pad, robust to early stopping lengths)
-# ------------------------------------------------------------
+
+# ------------ Histories stacking (NaN pad, robust to early stopping lengths) -------------
+
 def _as_float_array(x):
     if x is None:
         return None
@@ -32,9 +31,9 @@ def stack_histories(histories, key):
     return M
 
 
-# ------------------------------------------------------------
-# Ensemble prediction + majority voting
-# ------------------------------------------------------------
+
+# ------------ Ensemble prediction + majority voting ---------------
+
 def predict_proba(model, X, batch_size=256):
     """
     Framework-compatible probability prediction:
@@ -79,9 +78,7 @@ def bce_loss(y_true, p, eps=1e-12):
     return float(-np.mean(y_true * np.log(p) + (1 - y_true) * np.log(1 - p)))
 
 
-# ------------------------------------------------------------
-# Best-epoch from K-Fold CV on TRAIN ONLY (NO TEST LEAK)
-# ------------------------------------------------------------
+# --------------- Best-epoch from K-Fold CV on TRAIN ONLY (NO TEST LEAK) -------------------
 def compute_best_epoch_from_kfold(
     X_train,
     y_train,
@@ -162,9 +159,7 @@ def compute_best_epoch_from_kfold(
     return float(np.mean(best_epochs)), float(np.std(best_epochs)), best_epochs
 
 
-# ------------------------------------------------------------
-# Plotting (FULL SCREEN-ish, BLUE train / ORANGE test, red stop line)
-# ------------------------------------------------------------
+# -------------- Plotting (FULL SCREEN-ish, BLUE train / ORANGE test, red stop line) --------------
 def plot_runs_with_mean(
     M_train,
     M_test,
