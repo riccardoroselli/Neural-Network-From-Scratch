@@ -31,12 +31,12 @@
     "output_activation": "linear"
   },
   "optim": {
-    "lr": 0.06,
+    "lr": 0.01,
     "momentum": 0.8,
     "name": "sgd"
   },
   "regularizer": {
-    "l2": 0.0008
+    "l2": 0.0001
   },
   "seed": 42,
   "split": {
@@ -44,8 +44,8 @@
     "val_size": 0.2
   },
   "training": {
-    "batch_size": 64,
-    "epochs": 800,
+    "batch_size": 360,
+    "epochs": 1000,
     "include_reg_in_val": false,
     "loss": "mee",
     "metric": "mee",
