@@ -82,7 +82,7 @@ def build_model_from_cfg(run_cfg, seed, in_dim, out_dim, task="binary"):
         modules.append(Dense(prev, int(out_dim), initializer=xavier_uniform, seed=seed))
         modules.append(Sigmoid())
         loss = BinaryCrossEntropy()
-        metrics = [Accuracy()]
+        metrics = [Accuracy(), MSE()]
     elif task == "multiclass":
         # Output layer usa Xavier (softmax è simmetrica)
         modules.append(Dense(prev, int(out_dim), initializer=xavier_uniform, seed=seed))
