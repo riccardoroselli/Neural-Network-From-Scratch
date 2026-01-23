@@ -1,6 +1,8 @@
+# training/kfold_cv.py
 import numpy as np
 from sklearn.model_selection import StratifiedKFold, KFold
 from data_handler.data_loader import normalize
+
 
 def kfold_cross_validation(
     X,
@@ -14,79 +16,111 @@ def kfold_cross_validation(
     seed=None,
     verbose=1,
     include_reg_in_val=False,
-    normalize_data=False,    # Normalizzazione Input (X)
-    normalize_target=False,  # Normalizzazione Target (y)
+    normalize_data=False,
+    normalize_target=False,
     **fit_kwargs
 ):
     """
-    Esegue K-Fold Cross Validation con normalizzazione dinamica per fold.
-    """
-
-    # --- RILEVAMENTO TIPO TASK (Regressione vs Classificazione) ---
-    is_regression = False
+    Perform K-Fold Cross Validation with per-fold normalization.
     
-    # 1. Controllo tipo dati
-    try:
-        if np.issubdtype(y.dtype, np.floating):
-            is_regression = True
-    except:
-        pass
-
-    # 2. Controllo dimensioni (Multi-output = Regressione, es. CUP)
-    # StratifiedKFold rompe se y ha shape (N, 4)
-    if y.ndim > 1 and y.shape[1] > 1:
-        is_regression = True
-
+    Prevents data leakage by computing normalization statistics separately
+    for each fold, using only the training split of that fold.
+    
+    Workflow (per fold):
+        1. Split data into train/validation for this fold
+        2. Normalize train split (fit statistics)
+        3. Normalize validation split (using train statistics)
+        4. Reset and train model
+        5. Evaluate on both train and validation splits
+        6. Aggregate statistics across all folds
+    
+    Args:
+        X: input features, shape (N, D)
+        y: target values, shape (N, ...) 
+        model: Model instance to train
+        trainer: Trainer instance
+        k: number of folds (default: 5)
+        epochs: number of training epochs per fold
+        batch_size: mini-batch size
+        shuffle: whether to shuffle before splitting
+        seed: random seed for reproducibility
+        verbose: verbosity level (0=silent, 1=progress, 2=detailed)
+        include_reg_in_val: whether to include regularization in validation loss
+        normalize_inputs: if True, normalize X per-fold using train statistics
+        normalize_targets: if True, normalize y per-fold using train statistics
+        **fit_kwargs: additional arguments passed to trainer.fit()
+    
+    Returns:
+        tuple: (train_stats, val_stats, histories, fold_results)
+            - train_stats: dict with mean/std of train metrics across folds
+            - val_stats: dict with mean/std of validation metrics across folds
+            - histories: list of History objects (one per fold)
+            - fold_results: list of dicts with per-fold metrics
+    
+    Note:
+        Automatically detects task type:
+        - Multi-dimensional targets (y.shape[1] > 1) → Regression → KFold
+        - Single-dimensional discrete targets → Classification → StratifiedKFold
+    """
+    # Detect task type (classification vs regression)
+    is_regression = _is_regression_task(y)
+    
+    # Select appropriate cross-validation splitter
     if is_regression:
-        cv = KFold(n_splits=k, shuffle=shuffle, random_state=seed)
-        y_split = y
+        if verbose >= 1:
+            print(f"{'='*60}")
+            print(f"Task: Regression (y.shape={y.shape})")
+            print(f"Using KFold with k={k}")
+            print(f"{'='*60}")
+        cv_splitter = KFold(n_splits=k, shuffle=shuffle, random_state=seed)
+        y_for_split = y
     else:
-        cv = StratifiedKFold(n_splits=k, shuffle=shuffle, random_state=seed)
-        y_split = y.ravel() if y.ndim > 1 else y
-
-    if verbose >= 1:
-        norm_flags = []
-        if normalize_data:
-            norm_flags.append("X normalized")
-        if normalize_target:
-            norm_flags.append("y normalized")
-        norm_str = f" ({', '.join(norm_flags)})" if norm_flags else ""
-        print(f"\n{'='*60}")
-        print(f"{k}-Fold Cross Validation{norm_str}")
-        print(f"{'='*60}")
-
+        if verbose >= 1:
+            print(f"{'='*60}")
+            print(f"Task: Classification (y.shape={y.shape})")
+            print(f"Using StratifiedKFold with k={k}")
+            print(f"{'='*60}")
+        cv_splitter = StratifiedKFold(n_splits=k, shuffle=shuffle, random_state=seed)
+        # Stratified requires 1D targets
+        y_for_split = y.ravel() if y.ndim > 1 else y
+    
+    # Storage for results
     fold_results = []
     histories = []
-
-
-    # Ciclo sui Fold
-    for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X, y_split)):
+    
+    # Iterate over folds
+    for fold_idx, (train_indices, val_indices) in enumerate(cv_splitter.split(X, y_for_split)):
         if verbose >= 1:
-            print(f"Fold {fold_idx + 1}/{k} ", end="", flush=True)
-
-        # Slice dei dati grezzi
-        X_train, X_val = X[train_idx], X[val_idx]
-        y_train, y_val = y[train_idx], y[val_idx]
-
-        # --- NORMALIZZAZIONE INPUT (X) ---
+            print(f"\nFold {fold_idx + 1}/{k}")
+            print(f"-" * 60)
+        
+        # 1. Split data for this fold
+        X_train, X_val = X[train_indices], X[val_indices]
+        y_train, y_val = y[train_indices], y[val_indices]
+        
+        if verbose >= 2:
+            print(f"  Train: {len(X_train)} samples, Val: {len(X_val)} samples")
+        
+        # 2. Normalize inputs (fit on train fold, transform on val fold)
         if normalize_data:
-            # Calcolo statistiche su questo specifico training fold
-            X_train, mean_x, std_x = normalize(X_train)
-            # Applico le stesse statistiche al validation fold
-            X_val, _, _ = normalize(X_val, mean=mean_x, std=std_x)
-
-        # --- NORMALIZZAZIONE TARGET (y) ---
+            X_train, mean_X, std_X = normalize(X_train)
+            X_val, _, _ = normalize(X_val, mean=mean_X, std=std_X)
+            
+            if verbose >= 2:
+                print(f"  [Normalized X] mean={mean_X.mean():.4f}, std={std_X.mean():.4f}")
+        
+        # 3. Normalize targets (fit on train fold, transform on val fold)
         if normalize_target:
-            # Calcolo statistiche su questo specifico training fold
             y_train, mean_y, std_y = normalize(y_train)
-            # Applico le stesse statistiche al validation fold
-            # Fondamentale per avere una Loss coerente (MSE su dati scalati)
             y_val, _, _ = normalize(y_val, mean=mean_y, std=std_y)
-
-        # Reset Modello
+            
+            if verbose >= 2:
+                print(f"  [Normalized y] mean={mean_y.mean():.4f}, std={std_y.mean():.4f}")
+        
+        # 4. Reset model to initial state
         model.reset()
-
-        # Training
+        
+        # 5. Train model
         history = trainer.fit(
             X_train=X_train,
             y_train=y_train,
@@ -94,37 +128,109 @@ def kfold_cross_validation(
             y_val=y_val,
             epochs=epochs,
             batch_size=batch_size,
-            shuffle=shuffle,
-            seed=seed + fold_idx if seed is not None else None,
+            shuffle=True,  # Always shuffle during training
+            seed=None if seed is None else seed + fold_idx,
             include_reg_in_val=include_reg_in_val,
             **fit_kwargs
         )
-
-        # Valutazione
-        train_metrics = trainer.evaluate(X_train, y_train, batch_size=batch_size)
-        val_metrics = trainer.evaluate(X_val, y_val, batch_size=batch_size)
-
+        
+        # 6. Evaluate on both train and validation
+        train_metrics = trainer.evaluate(
+            X_train, y_train,
+            batch_size=batch_size,
+            include_regularization=include_reg_in_val
+        )
+        val_metrics = trainer.evaluate(
+            X_val, y_val,
+            batch_size=batch_size,
+            include_regularization=include_reg_in_val
+        )
+        
+        # Store results
         fold_results.append({
             "fold": fold_idx + 1,
             "train_metrics": train_metrics,
             "val_metrics": val_metrics
         })
         histories.append(history)
-
-    # Helper per aggregare le statistiche
-    def _compute_stats(results, key):
-        stats = {}
-        if not results: return stats
-        metric_names = results[0][key].keys()
-        for m in metric_names:
-            vals = [r[key][m] for r in results]
-            stats[m] = {
-                "mean": float(np.mean(vals)),
-                "std": float(np.std(vals))
-            }
-        return stats
-
-    train_stats = _compute_stats(fold_results, "train_metrics")
-    val_stats = _compute_stats(fold_results, "val_metrics")
-
+        
+        if verbose >= 1:
+            print(f"  Train: {_format_metrics(train_metrics)}")
+            print(f"  Val:   {_format_metrics(val_metrics)}")
+    
+    # 7. Aggregate statistics across folds
+    train_stats = _compute_fold_statistics(fold_results, "train_metrics")
+    val_stats = _compute_fold_statistics(fold_results, "val_metrics")
+    
+    # Print summary
+    if verbose >= 1:
+        print(f"\n{'='*60}")
+        print(f"K-Fold Cross Validation Summary (k={k})")
+        print(f"{'='*60}")
+        print("Train Metrics (mean ± std):")
+        for metric_name, stats in train_stats.items():
+            print(f"  {metric_name}: {stats['mean']:.4f} ± {stats['std']:.4f}")
+        print("\nValidation Metrics (mean ± std):")
+        for metric_name, stats in val_stats.items():
+            print(f"  {metric_name}: {stats['mean']:.4f} ± {stats['std']:.4f}")
+        print(f"{'='*60}\n")
+    
     return train_stats, val_stats, histories, fold_results
+
+
+def _is_regression_task(y):
+    """
+    Detect if task is regression or classification based on targets.
+    
+    Heuristics:
+        - Multi-output (y.shape[1] > 1) → Regression
+        - Floating point dtype → Regression
+        - Otherwise → Classification
+    
+    Args:
+        y: target array
+    
+    Returns:
+        bool: True if regression, False if classification
+    """
+    # Multi-output always regression
+    if y.ndim > 1 and y.shape[1] > 1:
+        return True
+    
+    # Check dtype
+    if np.issubdtype(y.dtype, np.floating):
+        return True
+    
+    return False
+
+
+def _compute_fold_statistics(fold_results, metrics_key):
+    """
+    Compute mean and std of metrics across folds.
+    
+    Args:
+        fold_results: list of dicts with per-fold results
+        metrics_key: key to extract from each fold ('train_metrics' or 'val_metrics')
+    
+    Returns:
+        dict: {metric_name: {'mean': ..., 'std': ...}}
+    """
+    if not fold_results:
+        return {}
+    
+    stats = {}
+    metric_names = fold_results[0][metrics_key].keys()
+    
+    for metric_name in metric_names:
+        values = [fold[metrics_key][metric_name] for fold in fold_results]
+        stats[metric_name] = {
+            "mean": float(np.mean(values)),
+            "std": float(np.std(values))
+        }
+    
+    return stats
+
+
+def _format_metrics(metrics):
+    """Helper to format metrics dict for display"""
+    return ', '.join([f'{k}={v:.4f}' for k, v in metrics.items()])

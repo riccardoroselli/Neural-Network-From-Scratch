@@ -6,122 +6,115 @@ from nn.activations import Tanh, Sigmoid, ReLU, Identity, Softmax
 from nn.losses import BinaryCrossEntropy, CrossEntropy, MSE
 from nn.metrics import Accuracy, MSE as MSEMetric, MEE
 from nn.optim import SGD, SGDMomentum, Adam
+from nn.regularizers import L2
 from nn.callbacks import EarlyStopping
-from nn.initializers import xavier_uniform, he_uniform  # <--- NUOVO IMPORT
+
+
+# Activation registry for cleaner lookup
+_ACTIVATIONS = {
+    "tanh": Tanh,
+    "sigmoid": Sigmoid,
+    "relu": ReLU,
+    "identity": Identity,
+    "softmax": Softmax,
+}
 
 
 def _make_activation(name):
-    n = str(name).lower()
-    if n == "tanh":
-        return Tanh()
-    if n == "sigmoid":
-        return Sigmoid()
-    if n == "relu":
-        return ReLU()
-    if n == "identity":
-        return Identity()
-    if n == "softmax":
-        return Softmax()
-    raise ValueError(f"Unknown activation: {name!r}")
-
-
-def _select_initializer(activation_name):
-    """
-    Select appropriate weight initializer based on activation function.
+    """Create activation instance from name (backward compatible)."""
+    name = str(name).lower()
     
-    Args:
-        activation_name: Name of activation function (str)
+    if name not in _ACTIVATIONS:
+        raise ValueError(f"Unknown activation: {name!r}")
     
-    Returns:
-        Initializer function (xavier_uniform or he_uniform)
-    
-    Rules:
-        - ReLU → He initialization (accounts for rectification)
-        - Tanh, Sigmoid, Identity → Xavier initialization (symmetric functions)
-    """
-    n = str(activation_name).lower()
-    if n == "relu":
-        return he_uniform
-    else:
-        # Xavier for tanh, sigmoid, identity, and other symmetric activations
-        return xavier_uniform
+    return _ACTIVATIONS[name]()
 
 
 def build_model_from_cfg(run_cfg, seed, in_dim, out_dim, task="binary"):
-    """Generic sequential model builder driven by run_cfg."""
+    """
+    Generic sequential model builder driven by run_cfg.
+    
+    IMPORTANT: This function signature and config structure MUST NOT change
+    to maintain compatibility with gridsearch and model_selection.
+    """
     model_cfg = run_cfg.get("model", {})
     optim_cfg = run_cfg.get("optim", {})
     reg_cfg = run_cfg.get("regularizer", {})
     cb_cfg = run_cfg.get("callbacks", {})
 
+    # Parse hidden layers config
     hidden_units = model_cfg.get("hidden_units", 16)
     if isinstance(hidden_units, int):
         hidden_list = [hidden_units]
     else:
         hidden_list = [int(x) for x in hidden_units]
 
-    activation_name = str(model_cfg.get("activation", "tanh"))
-    dropout_p = float(model_cfg.get("dropout", 0.0))
+    activation_name = model_cfg.get("activation", "tanh")
+    dropout_p = model_cfg.get("dropout", 0.0)
 
-    # NUOVO: Seleziona initializer basato su activation
-    initializer = _select_initializer(activation_name)
-
+    # Build hidden layers
     modules = []
     prev = int(in_dim)
+    
     for h in hidden_list:
-        # Passa initializer appropriato al Dense layer
-        modules.append(Dense(prev, int(h), initializer=initializer, seed=seed))
+        modules.append(Dense(prev, int(h), seed=seed))
         modules.append(_make_activation(activation_name))
         if dropout_p > 0.0:
             modules.append(Dropout(p=dropout_p, seed=seed))
         prev = int(h)
 
+    # Build output layer based on task
     task = str(task).lower()
+    
     if task == "binary":
-        # Output layer usa Xavier (sigmoid è simmetrica)
-        modules.append(Dense(prev, int(out_dim), initializer=xavier_uniform, seed=seed))
+        modules.append(Dense(prev, int(out_dim), seed=seed))
         modules.append(Sigmoid())
         loss = BinaryCrossEntropy()
-        metrics = [Accuracy(), MSE()]
+        metrics = [Accuracy()]
+    
     elif task == "multiclass":
-        # Output layer usa Xavier (softmax è simmetrica)
-        modules.append(Dense(prev, int(out_dim), initializer=xavier_uniform, seed=seed))
+        modules.append(Dense(prev, int(out_dim), seed=seed))
         modules.append(Softmax())
         loss = CrossEntropy()
         metrics = [Accuracy()]
+    
     elif task == "regression":
-        # Output layer usa Xavier (identity è lineare)
-        modules.append(Dense(prev, int(out_dim), initializer=xavier_uniform, seed=seed))
+        modules.append(Dense(prev, int(out_dim), seed=seed))
         modules.append(Identity())
         loss = MSE()
         metrics = [MEE()]
+    
     else:
         raise ValueError(f"Unknown task: {task!r}")
 
-    lr = float(optim_cfg.get("lr", 0.1))
-    momentum = float(optim_cfg.get("momentum", 0.0))
-    opt_name = str(optim_cfg.get("name", "sgd")).lower()
-
-    if opt_name == "adam":
+    # Build optimizer
+    lr = optim_cfg.get("lr", 0.1)
+    momentum = optim_cfg.get("momentum", 0.0)
+    opt_name = optim_cfg.get("name", "sgd")
+    
+    if str(opt_name).lower() == "adam":
         optimizer = Adam(lr=lr)
+    elif momentum > 0.0:
+        optimizer = SGDMomentum(lr=lr, momentum=momentum)
     else:
-        optimizer = SGDMomentum(lr=lr, momentum=momentum) if momentum > 0.0 else SGD(lr=lr)
+        optimizer = SGD(lr=lr)
 
+    # Build regularizer (optional)
     regularizer = None
-    lam = float(reg_cfg.get("l2", 0.0))
+    lam = reg_cfg.get("l2", 0.0)
     if lam > 0.0:
-        from nn.regularizers import L2
         regularizer = L2(lam=lam)
 
+    # Build callbacks (optional)
     callbacks = []
-    if bool(cb_cfg.get("early_stopping", False)):
+    if cb_cfg.get("early_stopping", False):
         callbacks.append(EarlyStopping(
-            monitor=str(cb_cfg.get("monitor", "val_loss")),
-            patience=int(cb_cfg.get("patience", 10)),
-            min_delta=float(cb_cfg.get("min_delta", 0.0)),
-            mode=str(cb_cfg.get("mode", "auto")),
-            restore_best_weights=bool(cb_cfg.get("restore_best_weights", True)),
-            verbose=int(cb_cfg.get("verbose", 0)),
+            monitor=cb_cfg.get("monitor", "val_loss"),
+            patience=cb_cfg.get("patience", 10),
+            min_delta=cb_cfg.get("min_delta", 0.0),
+            mode=cb_cfg.get("mode", "auto"),
+            restore_best_weights=cb_cfg.get("restore_best_weights", True),
+            verbose=cb_cfg.get("verbose", 0),
         ))
 
     return Model(
