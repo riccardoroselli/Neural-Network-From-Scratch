@@ -1,6 +1,6 @@
 # training/trainer.py
 import sys
-import numpy as np
+
 from training.dataloader import BatchIterator
 from training.history import History
 
@@ -24,7 +24,7 @@ class Trainer:
         """
         Args:
             model: Model instance to train
-            verbose: verbosity level (0=silent, 1=progress bar, 2=detailed)
+            verbose: 0 = silent, >= 1 = banner and per-epoch progress bar
         """
         self.model = model
         self.verbose = int(verbose)

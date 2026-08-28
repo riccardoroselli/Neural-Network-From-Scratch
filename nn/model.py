@@ -1,6 +1,5 @@
 # nn/model.py
 import numpy as np
-from .core import Module
 
 
 class Model:

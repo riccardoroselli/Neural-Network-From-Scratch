@@ -1,7 +1,7 @@
 # training/kfold_cv.py
 import numpy as np
 from sklearn.model_selection import StratifiedKFold, KFold
-from data_handler.data_loader import normalize
+from data.data_handler.data_loader import normalize
 
 
 def kfold_cross_validation(
@@ -46,8 +46,8 @@ def kfold_cross_validation(
         seed: random seed for reproducibility
         verbose: verbosity level (0=silent, 1=progress, 2=detailed)
         include_reg_in_val: whether to include regularization in validation loss
-        normalize_inputs: if True, normalize X per-fold using train statistics
-        normalize_targets: if True, normalize y per-fold using train statistics
+        normalize_data: if True, normalize X per-fold using train statistics
+        normalize_target: if True, normalize y per-fold using train statistics
         **fit_kwargs: additional arguments passed to trainer.fit()
     
     Returns:
@@ -58,9 +58,10 @@ def kfold_cross_validation(
             - fold_results: list of dicts with per-fold metrics
     
     Note:
-        Automatically detects task type:
-        - Multi-dimensional targets (y.shape[1] > 1) → Regression → KFold
-        - Single-dimensional discrete targets → Classification → StratifiedKFold
+        Automatically detects task type (see _is_regression_task):
+        - Multi-output targets (y.shape[1] > 1) -> Regression -> KFold
+        - Floating-point targets              -> Regression -> KFold
+        - Otherwise (discrete 1-D targets)    -> Classification -> StratifiedKFold
     """
     # Detect task type (classification vs regression)
     is_regression = _is_regression_task(y)

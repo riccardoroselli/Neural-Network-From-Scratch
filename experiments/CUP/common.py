@@ -1,7 +1,7 @@
 # experiments/CUP/common.py
 import os
 import numpy as np
-from data_handler.data_loader import load_cup
+from data.data_handler.data_loader import load_cup
 from training.model_factory import build_model_from_cfg
 from training.model_selection import run_two_phase_selection
 

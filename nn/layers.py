@@ -35,7 +35,8 @@ class Dense(Module):
         
         Args:
             X: input tensor, shape (N, in_dim)
-            training: unused (Dense has no training-specific behavior(rather than Dropout))
+            training: unused (a Dense layer behaves identically in training
+                      and inference; only modules such as Dropout differ)
         
         Returns:
             output tensor, shape (N, out_dim)

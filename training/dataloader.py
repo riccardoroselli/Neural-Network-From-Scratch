@@ -1,4 +1,4 @@
-# nn/dataloader.py
+# training/dataloader.py
 import numpy as np
 
 

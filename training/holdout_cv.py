@@ -1,7 +1,6 @@
 # training/holdout_cv.py
-import numpy as np
 from sklearn.model_selection import train_test_split
-from data_handler.data_loader import normalize
+from data.data_handler.data_loader import normalize
 
 
 def holdout_validation(
@@ -58,15 +57,15 @@ def holdout_validation(
             - history: History object with per-epoch logs
     
     Note:
-        If normalize_targets=True, returned metrics are in normalized scale.
-        To get original scale metrics, denormalize predictions before evaluation.
+        If normalize_target=True, returned metrics are in the normalized scale.
+        To get original-scale metrics, denormalize predictions before evaluation.
     
     Example:
         >>> train_metrics, val_metrics, history = holdout_validation(
         ...     X, y, model, trainer,
         ...     val_split=0.2,
-        ...     normalize_inputs=True,
-        ...     normalize_targets=True,
+        ...     normalize_data=True,
+        ...     normalize_target=True,
         ...     epochs=100
         ... )
     """

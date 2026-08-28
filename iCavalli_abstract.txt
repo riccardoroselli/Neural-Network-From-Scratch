@@ -1,5 +1,0 @@
-We developed a fully custom Python/NumPy neural-network framework and applied a feed-forward MLP to the ML-CUP regression task.
-Input features were standardized with Z-score to improve numerical stability during gradient-based optimization.
-Hyperparameters were tuned with a coarse-to-fine multi-step grid search (3888 models in the coarse phase, 6750 in the refined phase).
-The selected CUP model uses hidden units 64–32–16 with tanh, SGD + momentum 0.8, L2=1e-4, dropout=0, achieving MEE ≈ 22.6 on validation and internal test.
-​

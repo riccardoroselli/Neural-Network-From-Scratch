@@ -6,8 +6,8 @@ selection:
     steps: 4
     sig_digits: 1
     rules:
-      optim.lr: {clip: [1e-4, 1.0]}
-      regularizer.l2: {clip: [0.0, 1e-2]}
+      optim.lr: {clip: [1.0e-4, 1.0]}
+      regularizer.l2: {clip: [0.0, 1.0e-2]}
       model.dropout: {clip: [0.0, 0.8]}
       optim.momentum: {clip: [0.0, 0.99]}
 
@@ -85,7 +85,7 @@ grid:
   # 3) Regularization
   # ----------------------------
   model.dropout: [0.0, 0.1, 0.2]
-  regularizer.l2: [0.0, 1e-6, 1e-4, 1e-2]
+  regularizer.l2: [0.0, 1.0e-6, 1.0e-4, 1.0e-2]
 
   # ----------------------------
   # 4) Optimizer

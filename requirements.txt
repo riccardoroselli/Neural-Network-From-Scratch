@@ -1,0 +1,19 @@
+# Environment for the iCavalli ML-CUP25 project.
+#
+# The neural network in nn/ depends on NumPy alone. The three libraries below
+# it support the experiments and contribute no part of the model:
+#   scikit-learn - dataset splitting only (train_test_split, KFold,
+#                  StratifiedKFold); no estimator, metric or transformer
+#   matplotlib   - learning-curve plots
+#   PyYAML       - reading the experiment configuration files
+#
+# Versions are the ones the experiments were run and verified against.
+# Tested on Python 3.13.
+
+numpy==2.3.3
+scikit-learn==1.7.2
+matplotlib==3.10.6
+PyYAML==6.0.3
+
+# Needed only to open and run the notebooks in notebooks/.
+jupyterlab==4.4.9

@@ -10,7 +10,6 @@ class Callback:
     Any hook can return True to request training to stop.
     
     Integration points:
-        - Model.fit(...)
         - Trainer.fit(...)
         - Custom training loops
     
@@ -71,7 +70,9 @@ class EarlyStopping(Callback):
             - 'min': lower is better (for loss)
             - 'max': higher is better (for accuracy)
             - 'auto': infer from monitor name
-        restore_best_weights: if True, restore model to best epoch when stopping
+        restore_best_weights: if True, restore the weights from the best epoch
+            when training ends - whether it ends because the patience ran out
+            or because the epoch limit was reached
         verbose: 0 = silent, 1 = print improvements and stopping
     
     Example:
@@ -98,18 +99,36 @@ class EarlyStopping(Callback):
         self.verbose = int(verbose)
         
         self.model = None
-        
+
         # Training state (reset at train begin)
         self.best_value = None
         self.best_epoch = None
         self.wait = 0
         self.stopped_epoch = None
         self.best_state = None
+        self._restored = False       # guards against restoring twice
         self._is_improvement = None  # Function pointer set at train begin
 
     def should_stop(self):
         """Check if training should stop"""
         return self.stopped_epoch is not None
+
+    def reset(self):
+        """
+        Clear the tracked state.
+
+        on_train_begin() already re-initializes everything at the start of each
+        fit, so this is not required for correctness. It exists so that
+        Model.reset() - which calls reset() on every module and callback that
+        defines one - genuinely returns the whole model to a clean state,
+        including a snapshot that would otherwise be held until the next fit.
+        """
+        self.best_value = None
+        self.best_epoch = None
+        self.wait = 0
+        self.stopped_epoch = None
+        self.best_state = None
+        self._restored = False
 
     def on_train_begin(self, logs=None):
         """Initialize state at training start"""
@@ -117,6 +136,7 @@ class EarlyStopping(Callback):
         self.best_epoch = None
         self.best_state = None
         self.stopped_epoch = None
+        self._restored = False
         
         # Determine comparison mode
         mode = self.mode
@@ -182,11 +202,39 @@ class EarlyStopping(Callback):
             # Restore best weights if requested
             if self.restore_best_weights and self.best_state is not None:
                 self._restore_state(self.best_state)
+                self._restored = True
                 if self.verbose:
                     print("[EarlyStopping] Restored weights from best epoch")
-            
+
             return True  # Signal to stop training
-        
+
+        return False
+
+    def on_train_end(self, logs=None):
+        """
+        Restore the best weights when training ends without the patience ever
+        being exhausted.
+
+        Reaching the epoch limit is just as much an end of training as running
+        out of patience. Without this hook the best state is captured and then
+        silently discarded, leaving the model on whatever the final epoch
+        produced - which, on an overfitting run, can be far worse. It also made
+        model selection inconsistent: configurations that stopped early were
+        scored at their best epoch while the rest were scored at their last.
+        """
+        if (self.restore_best_weights
+                and not self._restored
+                and self.best_state is not None):
+            self._restore_state(self.best_state)
+            self._restored = True
+
+            if self.verbose:
+                print(
+                    f"[EarlyStopping] Training ended at the epoch limit; "
+                    f"restored weights from best epoch {self.best_epoch} "
+                    f"({self.monitor}={self.best_value:.6g})"
+                )
+
         return False
 
     # ==================== Improvement Checks ====================

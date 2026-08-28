@@ -1,6 +1,13 @@
 # training/refine_grid.py
 import math
+
 import numpy as np
+
+from .config import get_by_path
+
+# Sentinel for "this key is absent", so that a legitimately stored None is not
+# mistaken for a missing entry.
+_MISSING = object()
 
 
 def round_sig(x, sig=1):
@@ -17,34 +24,28 @@ def round_sig(x, sig=1):
     return round(x, decimals)
 
 
-def _get_by_path(config, path):
-    """
-    Access nested dict value using dot notation.
-    """
-    current = config
-    for key in path.split("."):
-        if not isinstance(current, dict) or key not in current:
-            raise KeyError(path)
-        current = current[key]
-    return current
-
-
 def compute_minmax_from_topk(topk_cfgs, param_path):
     """
     Extract scalar values for param_path from top-K configs and compute range.
+
+    Configs that do not carry the key are skipped, since a grid axis need not
+    be present in every configuration. If no config carries it at all the rule
+    cannot be applied, and that is an error worth surfacing rather than
+    silently producing an empty range.
     """
     values = []
-    
+
     for cfg in topk_cfgs:
-        try:
-            value = _get_by_path(cfg, param_path)
-            values.append(float(value))
-        except KeyError:
+        value = get_by_path(cfg, param_path, _MISSING)
+        if value is _MISSING:
             continue
-    
+        # YAML exponent literals without a decimal point (1e-4) parse as
+        # strings, so coerce rather than assuming a numeric type.
+        values.append(float(value))
+
     if len(values) == 0:
         raise KeyError(f"Refinable key '{param_path}' not found in any top-K config.")
-    
+
     return float(min(values)), float(max(values))
 
 

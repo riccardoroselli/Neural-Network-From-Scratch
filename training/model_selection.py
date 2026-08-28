@@ -92,7 +92,15 @@ def run_two_phase_selection(
     os.makedirs(out_dir, exist_ok=True)
     
     # ========== Phase 1: Coarse Search ==========
+    # run_grid appends to its output file, so a stale file from an earlier or
+    # interrupted search would leave its rows mixed in with this one's. The
+    # summary is built from the current run's in-memory rows and would not
+    # notice, but the CSV would no longer be a faithful record of the search.
+    # Phase 2 already clears its file; phase 1 must do the same.
     coarse_csv = os.path.join(out_dir, "coarse_runs.csv")
+    if os.path.exists(coarse_csv):
+        os.remove(coarse_csv)
+
     coarse_out = run_grid(
         config_path=config_path,
         build_model_fn=build_model_fn,

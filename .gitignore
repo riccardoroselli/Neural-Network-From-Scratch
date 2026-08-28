@@ -209,3 +209,5 @@ __marimo__/
 
 # OK
 .DS_Store
+# macOS Finder metadata
+.DS_Store

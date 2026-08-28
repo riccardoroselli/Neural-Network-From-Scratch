@@ -4,15 +4,33 @@ import numpy as np
 
 class Optimizer:
     """Base class for all optimizers"""
-    
+
     def step(self, modules):
         """
         Update parameters of all modules.
-        
+
         Args:
             modules: list of Module instances with learnable parameters
         """
         raise NotImplementedError
+
+    @staticmethod
+    def _iter_keyed_params(modules):
+        """
+        Yield (state_key, param, grad) for every learnable parameter.
+
+        The key is the parameter's position in the network - (module index,
+        parameter index within that module) - rather than id(param).
+
+        id() is only unique among *live* objects: reinitializing a layer frees
+        its arrays, and a later allocation can land on the same address and
+        inherit the previous parameter's optimizer state. A positional key is
+        stable across reinitialization and cannot collide, so momentum and
+        Adam moments always stay matched to the parameter they belong to.
+        """
+        for module_index, module in enumerate(modules):
+            for param_index, (param, grad) in enumerate(module.params_and_grads()):
+                yield (module_index, param_index), param, grad
 
 
 class SGD(Optimizer):
@@ -59,21 +77,18 @@ class SGDMomentum(Optimizer):
     
     def step(self, modules):
         """Apply momentum-based gradient descent"""
-        for module in modules:
-            for param, grad in module.params_and_grads():
-                param_id = id(param)
-                
-                # Initialize velocity if needed
-                if param_id not in self.velocities:
-                    self.velocities[param_id] = np.zeros_like(param)
-                
-                # Update velocity
-                velocity = self.velocities[param_id]
-                velocity *= self.momentum
-                velocity -= self.lr * grad
-                
-                # Update parameter
-                param += velocity
+        for key, param, grad in self._iter_keyed_params(modules):
+            # Initialize velocity if needed
+            if key not in self.velocities:
+                self.velocities[key] = np.zeros_like(param)
+
+            # Update velocity
+            velocity = self.velocities[key]
+            velocity *= self.momentum
+            velocity -= self.lr * grad
+
+            # Update parameter
+            param += velocity
 
 
 class Adam(Optimizer):
@@ -110,25 +125,22 @@ class Adam(Optimizer):
     def step(self, modules):
         """Apply Adam optimization step"""
         self.t += 1
-        
-        for module in modules:
-            for param, grad in module.params_and_grads():
-                param_id = id(param)
-                
-                # Initialize moments if needed
-                if param_id not in self.m:
-                    self.m[param_id] = np.zeros_like(param)
-                    self.v[param_id] = np.zeros_like(param)
-                
-                # Update biased first moment estimate
-                self.m[param_id] = self.beta1 * self.m[param_id] + (1 - self.beta1) * grad
-                
-                # Update biased second moment estimate
-                self.v[param_id] = self.beta2 * self.v[param_id] + (1 - self.beta2) * (grad ** 2)
-                
-                # Compute bias-corrected moments
-                m_hat = self.m[param_id] / (1 - self.beta1 ** self.t)
-                v_hat = self.v[param_id] / (1 - self.beta2 ** self.t)
-                
-                # Update parameter
-                param -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+
+        for key, param, grad in self._iter_keyed_params(modules):
+            # Initialize moments if needed
+            if key not in self.m:
+                self.m[key] = np.zeros_like(param)
+                self.v[key] = np.zeros_like(param)
+
+            # Update biased first moment estimate
+            self.m[key] = self.beta1 * self.m[key] + (1 - self.beta1) * grad
+
+            # Update biased second moment estimate
+            self.v[key] = self.beta2 * self.v[key] + (1 - self.beta2) * (grad ** 2)
+
+            # Compute bias-corrected moments
+            m_hat = self.m[key] / (1 - self.beta1 ** self.t)
+            v_hat = self.v[key] / (1 - self.beta2 ** self.t)
+
+            # Update parameter
+            param -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)

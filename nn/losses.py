@@ -20,8 +20,8 @@ class Loss:
 
     def _fix_shapes(self, y_pred, y_true):
         """
-        Convert 1D arrays to 2D column vectors for consistent handling.
-        Uses y_pred shape as reference to interpret y_true.
+        Promote 1D arrays to 2D column vectors so every loss can assume a
+        (n_samples, n_outputs) layout. Each array is reshaped independently.
         """
         if y_pred.ndim == 1:
             y_pred = y_pred.reshape(-1, 1)

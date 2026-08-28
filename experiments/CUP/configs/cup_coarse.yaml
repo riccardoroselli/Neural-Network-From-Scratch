@@ -1,13 +1,13 @@
 # experiments/CUP/configs/cup_coarse.yaml
 
 selection:
-  top_k: 10  # Teniamo i migliori 5 per il refinement
+  top_k: 10  # keep the best 10 coarse configs for the refinement phase
   refine:
     steps: 5
-    sig_digits: 1 # Maggiore precisione per la regressione
+    sig_digits: 1
     rules:
-      optim.lr: {clip: [1e-5, 0.1]}
-      regularizer.l2: {clip: [0, 1e-1]}
+      optim.lr: {clip: [1.0e-5, 0.1]}
+      regularizer.l2: {clip: [0, 1.0e-1]}
       model.dropout: {clip: [0.0, 0.8]}
       optim.momentum: {clip: [0.0, 0.99]}
 
@@ -15,29 +15,31 @@ base:
   seed: 42
 
   data:
-    # Questo file verrà creato dal notebook (80% del dataset originale)
+    # 80% of ML-CUP25-TR (425 rows), produced by create_internal_split.
     train_path: "data/CUP/internal_train_80.csv"
-    # Assumiamo che il DataParser legga automaticamente input=10 e output=4 dal CSV
+    # 12 input columns and 4 target columns, per the ML-CUP25 format.
     normalize: true
     normalize_target: true
     inputs: 12
     targets: 4
-  # Split per la Coarse Search (Hold-out)
+  # Hold-out split for the coarse search
   split:
-    val_size: 0.20  # Su 400 righe di train, 100 vanno in validazione (25%)
-    stratified: false # OBBLIGATORIO false per regressione
+    val_size: 0.20  # of 425 training rows: 340 train / 85 validation
+    stratified: false # must be false for regression
 
-  # K-Fold per la Fine Search (Refinement)
+  # K-fold for the fine search (refinement)
   cv:
-    k: 5 # 4-Fold su 400 righe = 100 val per fold.
+    k: 5 # 5 folds over 425 rows = 340 train / 85 validation per fold
     shuffle: true
     seed: 42
 
   # Default model architecture
   model:
     hidden_units: [20, 20]
-    activation: "tanh" # Tanh o Relu vanno bene per regressione
-    output_activation: "linear" # FONDAMENTALE: l'output non deve essere schiacciato
+    activation: "tanh"
+    # NOTE: output_activation is not read by build_model_from_cfg; the
+    # regression branch always uses a linear (Identity) output.
+    output_activation: "linear"
     dropout: 0.0
 
   # Optimizer defaults
@@ -48,23 +50,25 @@ base:
 
   # Regularizer defaults
   regularizer:
-    l2: 1e-4
+    l2: 1.0e-4
 
   # Training defaults
   training:
-    epochs: 800 # Abbastanza per convergenza coarse
+    epochs: 800
     batch_size: 32
     shuffle: true
-    loss: "mee"   # Mean Eculidean Error per il training
-    metric: "mee" # Mean Euclidean Error per la valutazione (o "mse")
+    # NOTE: neither key is read by build_model_from_cfg; the regression
+    # branch always trains on MSE and reports MEE as the metric.
+    loss: "mee"
+    metric: "mee"
     include_reg_in_val: false
 
   # Callbacks
   callbacks:
     early_stopping: true
     monitor: "val_loss"
-    patience: 50 # Un po' più paziente per la regressione che può oscillare
-    min_delta: 1e-5
+    patience: 50 # regression validation curves oscillate more than MONK's
+    min_delta: 1.0e-5  # needs the decimal point, or YAML parses it as a string
     mode: "min"
     restore_best_weights: true
     verbose: 0
@@ -74,8 +78,7 @@ base:
 # ----------------------------
 grid:
 
-  # 1) Architectures
-  # Il CUP è più complesso del MONK. Proviamo reti più capaci.
+  # 1) Architectures (wider than MONK: the CUP task is harder)
   model.hidden_units:
       - [8]
       - [8, 6]
@@ -91,19 +94,19 @@ grid:
   # 2) Activation
   model.activation: ["tanh", "relu", "sigmoid"]
 
-  # 3) Regularization (Cruciale con pochi dati - 400 sample)
+  # 3) Regularization (important with only 425 training rows)
   model.dropout: [0.0, 0.2, 0.5]
-  regularizer.l2: [1e-5, 1e-4, 1e-3, 1e-2]
+  regularizer.l2: [1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2]
 
   # 4) Optimizer
-  optim.name: ["sgd"] # Focalizziamoci su SGD+Momentum che spesso generalizza meglio
+  optim.name: ["sgd"] # SGD + momentum only
   
-  # I Learning Rate per regressione sono spesso più bassi
-  optim.lr: [0.1, 0.01, 0.001]  
+  # Regression usually wants smaller learning rates than classification
+  optim.lr: [0.1, 0.01, 0.001]
   
   optim.momentum: [0.5, 0.9]
 
   # 5) Training
-  training.batch_size: [16, 32, 64] 
-  # Batch piccolo (16) aiuta a generalizzare ("noise" nel gradiente), 
-  # batch grande (32) stabilizza.
+  training.batch_size: [16, 32, 64]
+  # Small batches add gradient noise and can help generalization;
+  # larger batches give a more stable descent direction.

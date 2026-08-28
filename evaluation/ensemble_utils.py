@@ -1,4 +1,4 @@
-# testing/ensemble_utils.py
+# evaluation/ensemble_utils.py
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -95,7 +95,12 @@ def compute_best_epoch_from_kfold(
 
     Notes:
     - Uses the validation split inside k-fold (NOT the external test set).
-    - Epoch indexing returned is 0-based (so it aligns with plotting indices).
+    - Epoch indexing returned is 0-based, i.e. an index into the history
+      arrays, so it can be passed straight to matplotlib as an x coordinate.
+      This is deliberately NOT the convention used by training.gridsearch and
+      the results CSVs, which report 1-based human epoch counts. Add 1 when
+      comparing the two, and subtract 1 before using a CSV value as an index.
+    - Always builds a binary-classification model (task="binary").
     """
     from training.kfold_cv import kfold_cross_validation  # local import to avoid circular deps
 

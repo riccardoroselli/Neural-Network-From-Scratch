@@ -1,9 +1,7 @@
 # experiments/MONK/common.py
-import numpy as np
-
 from training.model_factory import build_model_from_cfg
 from training.model_selection import run_two_phase_selection
-from data_handler.data_loader import load_monk
+from data.data_handler.data_loader import load_monk
 
 
 def load_full_data(run_cfg):

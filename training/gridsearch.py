@@ -2,6 +2,7 @@
 import csv
 import hashlib
 import json
+import math
 import os
 import time
 import concurrent.futures
@@ -24,13 +25,24 @@ def _hash_config(cfg):
 
 
 def _safe_float(x):
-    """Convert to float, return None if not possible."""
+    """
+    Convert to float, returning None if that is not possible or if the result
+    is not finite.
+
+    A NaN or infinite metric means the run diverged, which is the absence of a
+    measurement rather than a very bad one. Mapping it to None keeps it out of
+    the aggregates and lets the ranking push it to the bottom; leaving it as a
+    NaN would poison both, since NaN compares false against everything and so
+    sorts unpredictably.
+    """
     if x is None:
         return None
     try:
-        return float(x)
+        value = float(x)
     except Exception:
         return None
+
+    return value if math.isfinite(value) else None
 
 
 def _infer_mode_from_monitor(monitor):
@@ -92,9 +104,17 @@ def _collect_values(rows, key):
 
 
 def _compute_mean_std(values):
-    """Compute mean and std from list of values."""
+    """
+    Compute mean and std from a list of values.
+
+    With a single value the standard deviation is undefined, so None is
+    returned rather than 0.0: writing a literal zero into the results makes a
+    single unrepeated run look like one with perfect agreement across seeds.
+    """
     if len(values) == 0:
         return None, None
+    if len(values) == 1:
+        return float(values[0]), None
     return float(np.mean(values)), float(np.std(values))
 
 
@@ -138,10 +158,11 @@ def summarize_rows(rows, objective_mode):
             "config_json": config_rows[0]["config_json"],
         })
     
-    # Sort by score (handle None values)
+    # Sort by score. Missing and non-finite scores rank last in either
+    # direction, so diverged configurations never displace valid ones.
     def sort_key(x):
         v = x.get("score_mean")
-        if v is None:
+        if v is None or not math.isfinite(v):
             return np.inf if objective_mode == "min" else -np.inf
         return v
     
@@ -187,12 +208,18 @@ def _parse_training_config(run_cfg):
 
 # ==================== Run Execution ====================
 
-def _run_holdout(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
+def _run_holdout(run_cfg, seed, build_model_fn, load_full_data_fn):
     """
     Run holdout validation for a single config+seed.
-    
+
     Returns:
         tuple: (val_metrics, best_epoch, train_time_sec)
+
+    Note:
+        best_epoch is 1-based - it is a human epoch count, where 1 is the
+        first epoch, and this is the convention used by the best_epoch_mean
+        column of every results CSV. evaluation.ensemble_utils returns a 0-based
+        epoch *index* instead, because it feeds matplotlib's x-axis directly.
     """
     X, y = load_full_data_fn(run_cfg)
     model = build_model_fn(run_cfg, seed=seed)
@@ -230,12 +257,15 @@ def _run_holdout(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
     return val_metrics, best_epoch, float(t1 - t0)
 
 
-def _run_kfold(run_cfg, seed, build_model_fn, load_full_data_fn, verbose):
+def _run_kfold(run_cfg, seed, build_model_fn, load_full_data_fn):
     """
     Run k-fold cross-validation for a single config+seed.
-    
+
     Returns:
         tuple: (val_stats, best_epoch_mean, best_epoch_std, train_time_sec)
+
+    Note:
+        best_epoch_mean is 1-based, matching _run_holdout and the results CSVs.
     """
     X, y = load_full_data_fn(run_cfg)
     model = build_model_fn(run_cfg, seed=seed)
@@ -294,29 +324,34 @@ def process_single_run(args):
     (run_cfg, seed, mode, build_model_fn, load_full_data_fn,
      verbose, objective, objective_mode) = args
     
-    # Set seed for this process
-    np.random.seed(int(seed))
+    # Every source of randomness downstream is seeded explicitly: layer
+    # initialisation and batch shuffling go through np.random.default_rng(seed),
+    # and the sklearn splitters receive random_state. Nothing reads NumPy's
+    # legacy global RNG, so there is deliberately no np.random.seed() here.
     config_id = _hash_config(run_cfg)
     
     # Execute holdout or k-fold
     if mode == "holdout":
         val_metrics, best_epoch, train_time = _run_holdout(
-            run_cfg, seed, build_model_fn, load_full_data_fn, verbose
+            run_cfg, seed, build_model_fn, load_full_data_fn
         )
         
         val_loss_mean = _safe_float(val_metrics.get("loss"))
         acc_key = _get_val_acc_key(val_metrics)
         val_acc_mean = _safe_float(val_metrics.get(acc_key)) if acc_key else None
         
-        val_loss_std = 0.0 if val_loss_mean is not None else None
-        val_acc_std = 0.0 if val_acc_mean is not None else None
-        
+        # A single hold-out split produces one measurement, so there is no
+        # spread to report. These stay empty rather than 0.0, which would read
+        # as a measured agreement that was never measured.
+        val_loss_std = None
+        val_acc_std = None
+
         best_epoch_mean = float(best_epoch) if best_epoch is not None else None
-        best_epoch_std = 0.0 if best_epoch_mean is not None else None
+        best_epoch_std = None
     
     else:  # kfold
         val_stats, best_epoch_mean, best_epoch_std, train_time = _run_kfold(
-            run_cfg, seed, build_model_fn, load_full_data_fn, verbose
+            run_cfg, seed, build_model_fn, load_full_data_fn
         )
         
         # Extract loss stats
@@ -340,9 +375,12 @@ def process_single_run(args):
             val_acc_mean = None
             val_acc_std = None
     
-    # Compute objective score
+    # Compute objective score. In hold-out mode there is a single split and
+    # therefore no spread; in k-fold mode the spread comes from the folds.
     score_mean = _extract_objective(objective, val_loss_mean, val_acc_mean)
-    score_std = 0.0 if mode == "holdout" and score_mean is not None else None
+    score_std = None if mode == "holdout" else _extract_objective(
+        objective, val_loss_std, val_acc_std
+    )
     
     # Build result row
     return {
@@ -434,37 +472,61 @@ def run_grid(
     
     # Determine number of workers
     max_workers = multiprocessing.cpu_count() if n_jobs < 1 else n_jobs
-    
-    print(f"Starting Grid Search with {max_workers} processes for {total} tasks...")
-    
+
+    if verbose:
+        print(f"Starting Grid Search with {max_workers} processes for {total} tasks...")
+
     # Execute in parallel
     rows = []
+    failures = []
     with open(out_csv_path, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=header)
         if write_header:
             writer.writeheader()
-        
+
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
             futures = [executor.submit(process_single_run, t) for t in tasks]
-            
+
             # Process results as they complete
             for future in concurrent.futures.as_completed(futures):
                 try:
                     row = future.result()
-                    
+
                     # Write result (thread-safe since in main process)
                     writer.writerow(row)
                     f.flush()
                     rows.append(row)
-                    
+
                     done += 1
                     if verbose:
                         print(f"[grid:{mode}] {done}/{total} Config completed.")
-                
+
                 except Exception as e:
-                    print(f"Error during grid search run: {e}")
-    
+                    failures.append(f"{type(e).__name__}: {e}")
+
+    # A run whose score is None either raised or diverged to NaN/inf. Both
+    # leave a hole in the search, so they are counted and reported instead of
+    # disappearing into a summary that silently covers fewer configurations
+    # than were requested.
+    diverged = sum(1 for r in rows if r.get("score_mean") is None)
+
+    if failures:
+        print(f"[grid:{mode}] WARNING: {len(failures)}/{total} runs raised and "
+              f"produced no result.")
+        for message in sorted(set(failures))[:5]:
+            print(f"    {message}")
+        if len(set(failures)) > 5:
+            print(f"    ... and {len(set(failures)) - 5} other distinct errors")
+
+    if diverged:
+        print(f"[grid:{mode}] WARNING: {diverged}/{len(rows)} runs produced a "
+              f"non-finite score (diverged); they are ranked last.")
+
+    if len(rows) + len(failures) != total:
+        print(f"[grid:{mode}] WARNING: expected {total} results, "
+              f"got {len(rows)} rows and {len(failures)} failures.")
+
     # Aggregate results
     summary = summarize_rows(rows, objective_mode=objective_mode)
     

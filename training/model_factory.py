@@ -4,7 +4,7 @@ from nn.layers import Dense
 from nn.dropout import Dropout
 from nn.activations import Tanh, Sigmoid, ReLU, Identity, Softmax
 from nn.losses import BinaryCrossEntropy, CrossEntropy, MSE
-from nn.metrics import Accuracy, MSE as MSEMetric, MEE
+from nn.metrics import Accuracy, MEE
 from nn.optim import SGD, SGDMomentum, Adam
 from nn.callbacks import EarlyStopping
 

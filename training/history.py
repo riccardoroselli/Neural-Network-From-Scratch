@@ -1,4 +1,4 @@
-# nn/history.py
+# training/history.py
 
 class History:
     """
