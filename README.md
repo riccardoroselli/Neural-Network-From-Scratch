@@ -238,19 +238,6 @@ delete their run CSV first, so point `out_dir` elsewhere to keep an old search, 
 `run_cup_test.ipynb` from the top — its submission cells need the epoch count computed above
 them.
 
-## Notes
-
-Initialization, mini-batch shuffling, dropout masks and CV splits are all seeded: four tests
-in `tests/test_pipeline.py` assert bit-identical reruns and a fifth asserts that an unseeded
-fit differs. Two consequences are deliberate: every
-fold of a k-fold run starts from identical weights, so fold spread excludes initialization
-sensitivity, and all layers of a model share one seed value.
-
-Re-running assessment today reproduces MONK-1, MONK-2 accuracy and both CUP test figures
-exactly; MONK-3 lands a point lower (0.930298 ± 0.014246), a code change between revisions
-rather than nondeterminism. The search CSVs and the committed submission came from earlier
-revisions and will not reproduce byte for byte.
-
 ## Authors
 
 Team *iCavalli*, Machine Learning, University of Pisa.
